@@ -9,8 +9,8 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
-<script src="vendor/xlsx.min.js"></script>
-<script src="vendor/html2canvas.min.js"></script>
+<script src="vendor/xlsx.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'"></script>
+<script src="vendor/html2canvas.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'"></script>
 <style>
   :root {
     --play-purple: #5c108c;
@@ -693,6 +693,9 @@
             <th>
               <span class="th-with-tip">Wolne zamiast urlopu<span class="help-tip" tabindex="0" data-tip="Przy zgłoszonym urlopie najpierw rozdawaj wolne; odznacz = trzymaj urlop i rozdawaj wolne osobno.">?</span></span>
             </th>
+            <th>
+              <span class="th-with-tip">Uczeń<span class="help-tip" tabindex="0" data-tip="Uczeń nie otrzymuje samodzielnych otwarć i zamknięć; nie jest brany pod uwagę przy kompletowaniu minimalnej obsady dziennej.">?</span></span>
+            </th>
             <th></th>
           </tr>
         </thead>
@@ -786,8 +789,14 @@ const TARGET_FREE_SATURDAYS = 2;
 const minStaffForDay = day => day.dow === 6 ? MIN_STAFF_SATURDAY : MIN_STAFF;
 
 const DEFAULT_EMPLOYEES = ['M.P.','J.D.','K.P.','A.M.','U.F.','S.S.'].map((name,i)=>({
-  id:'e'+(i+1), name, target:160, daysOff:'', preferFreeSaturdays:true, preferFreeOverUrlop:true
+  id:'e'+(i+1), name, target:160, daysOff:'', preferFreeSaturdays:true, preferFreeOverUrlop:true, isStudent:false
 }));
+
+/**
+ * Uczeń: nie liczy się do minimalnej obsady dnia;
+ * otwarcie (S1) / zamknięcie (S5) tylko gdy ktoś inny jest na tej samej zmianie.
+ */
+const isStudentEmp = e => !!(e && e.isStudent);
 
 const state = {
   employees: [],
@@ -846,6 +855,7 @@ function loadEmployees() {
     if (e.daysOff === undefined) e.daysOff = '';
     if (e.preferFreeSaturdays === undefined) e.preferFreeSaturdays = true;
     if (e.preferFreeOverUrlop === undefined) e.preferFreeOverUrlop = true;
+    if (e.isStudent === undefined) e.isStudent = false;
   }
   renderEmployeeTable();
 }
@@ -995,6 +1005,7 @@ function renderEmployeeTable() {
   const daysOffC = consensusValue(e => e.daysOff === '' || e.daysOff == null ? '' : String(e.daysOff));
   const satC = consensusValue(e => !!e.preferFreeSaturdays);
   const urlopC = consensusValue(e => e.preferFreeOverUrlop !== false);
+  const studentC = consensusValue(e => !!e.isStudent);
 
   const allRow = `
     <tr class="row-all">
@@ -1027,6 +1038,12 @@ function renderEmployeeTable() {
           data-mixed="${urlopC.mixed ? '1' : '0'}"
           title="Ustaw „wolne zamiast urlopu” wszystkim">
       </td>
+      <td>
+        <input type="checkbox" ${!studentC.mixed && studentC.value ? 'checked' : ''}
+          data-emp="__all__" data-field="isStudent"
+          data-mixed="${studentC.mixed ? '1' : '0'}"
+          title="Ustaw status ucznia wszystkim">
+      </td>
       <td></td>
     </tr>`;
 
@@ -1046,6 +1063,11 @@ function renderEmployeeTable() {
         <input type="checkbox" ${emp.preferFreeOverUrlop !== false ? 'checked' : ''}
           data-emp="${emp.id}" data-field="preferFreeOverUrlop"
           title="Przy zgłoszonym urlopie najpierw rozdawaj wolne. Odznacz = urlop zostaje, wolne osobno.">
+      </td>
+      <td>
+        <input type="checkbox" ${emp.isStudent ? 'checked' : ''}
+          data-emp="${emp.id}" data-field="isStudent"
+          title="Uczeń nie otrzymuje samodzielnych otwarć i zamknięć; nie jest brany pod uwagę przy kompletowaniu minimalnej obsady dziennej.">
       </td>
       <td><button class="btn-ghost" data-action="remove-employee" data-emp="${emp.id}">usuń</button></td>
     </tr>`).join('');
@@ -1083,6 +1105,8 @@ function applyEmpField(emp, field, value) {
     emp.preferFreeSaturdays = !!value;
   } else if (field === 'preferFreeOverUrlop') {
     emp.preferFreeOverUrlop = !!value;
+  } else if (field === 'isStudent') {
+    emp.isStudent = !!value;
   } else if (field === 'name') {
     emp.name = value;
   }
@@ -1109,7 +1133,7 @@ function updateEmp(id, field, value) {
 }
 
 function addEmployee() {
-  state.employees.push({ id: uid(), name: 'Nowy', target: 160, daysOff: '', preferFreeSaturdays: true, preferFreeOverUrlop: true });
+  state.employees.push({ id: uid(), name: 'Nowy', target: 160, daysOff: '', preferFreeSaturdays: true, preferFreeOverUrlop: true, isStudent: false });
   saveEmployees(); renderEmployeeTable(); renderPrefTable();
 }
 function removeEmployee(id) {
@@ -1449,9 +1473,13 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   }
 
   const blockedIds = new Set([...hardOffIds, ...protectedSatOff]);
+  // Uczniowie nie kompletują minimalnej obsady — liczymy tylko nie-uczniów
+  const regularIds = new Set(employees.filter(e => !isStudentEmp(e)).map(e => e.id));
+  const regularAvailable = [...regularIds].filter(id => !hardOffIds.has(id)).length;
+  const regularUnblocked = [...regularIds].filter(id => !blockedIds.has(id)).length;
   const availableCount = employees.length - blockedIds.size;
-  const softMin = Math.min(targetMin, Math.max(availableCount, employees.length - hardOffIds.size));
-  // softMin nie spada poniżej osób dostępnych bez hard-off (chronione soboty mogą być „odblokowane” w awarii)
+  const softMin = Math.min(targetMin, Math.max(regularUnblocked, regularAvailable));
+  // softMin oparte o nie-uczniów (chronione soboty mogą być „odblokowane” w awarii)
 
   const urgencies = {};
   for (const e of employees) {
@@ -1527,39 +1555,66 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     }
   }
 
-  // Dociągnięcie obsady — najpierw bez chronionych sobót, etat nadrzędny
-  const pullToMin = (minNeeded, allowProtected, allowOverConsec) => {
-    if (working.length >= minNeeded) return;
+  // Dociągnięcie obsady — najpierw osoby z remaining > 0 (bez nadgodzin)
+  const pullToMin = (minNeeded, allowProtected, allowOverConsec, regularsOnly) => {
+    const currentCount = () => regularsOnly
+      ? working.filter(e => !isStudentEmp(e)).length
+      : working.length;
+    if (currentCount() >= minNeeded) return;
     const alreadyIn = new Set(working.map(e => e.id));
     const pool = employees
       .filter(e => {
+        if (regularsOnly && isStudentEmp(e)) return false;
         if (alreadyIn.has(e.id) || hardOffIds.has(e.id)) return false;
         if (!allowProtected && protectedSatOff.has(e.id)) return false;
         if (!allowOverConsec && consec[e.id] >= MAX_CONSECUTIVE_DAYS) return false;
         return true;
       })
       .sort((a, b) => {
-        // Chronionych sobót używaj na końcu
-        const pa = protectedSatOff.has(a.id) ? 1 : 0;
-        const pb = protectedSatOff.has(b.id) ? 1 : 0;
-        if (pa !== pb) return pa - pb;
+        // Najpierw osoby poniżej etatu, potem chronione soboty na końcu
         const ra = remaining[a.id] > 0 ? 0 : 1;
         const rb = remaining[b.id] > 0 ? 0 : 1;
         if (ra !== rb) return ra - rb;
+        const pa = protectedSatOff.has(a.id) ? 1 : 0;
+        const pb = protectedSatOff.has(b.id) ? 1 : 0;
+        if (pa !== pb) return pa - pb;
         return consec[a.id] - consec[b.id] || Math.random() - 0.5;
       });
-    while (working.length < minNeeded && pool.length) {
+    while (currentCount() < minNeeded && pool.length) {
       const e = pool.shift();
       working.push(e);
       alreadyIn.add(e.id);
     }
   };
 
-  const staffFloor = Math.min(targetMin, employees.length - hardOffIds.size);
-  pullToMin(staffFloor, false, false);
-  pullToMin(staffFloor, false, true);
-  // Tylko gdy inaczej nie da rady obsady — rusz chronione soboty (etat/obsada > wolna sobota)
-  pullToMin(Math.min(MIN_STAFF, staffFloor), true, true);
+  // Minimalna obsada = nie-uczniowie (uczniowie nie wliczają się w minimum)
+  const staffFloor = Math.min(targetMin, regularAvailable);
+  pullToMin(staffFloor, false, false, true);
+  pullToMin(staffFloor, false, true, true);
+  pullToMin(Math.min(MIN_STAFF, staffFloor), true, true, true);
+  // Dodatkowo dobieraj osoby z remaining > 0 (w tym uczniów) do need — bez forsowania nadgodzin
+  {
+    const alreadyIn = new Set(working.map(e => e.id));
+    const pool = employees
+      .filter(e =>
+        !alreadyIn.has(e.id) &&
+        !hardOffIds.has(e.id) &&
+        remaining[e.id] > 0 &&
+        consec[e.id] < MAX_CONSECUTIVE_DAYS
+      )
+      .sort((a, b) => {
+        const ua = urgencies[a.id] || 0;
+        const ub = urgencies[b.id] || 0;
+        if (Math.abs(ub - ua) > 0.05) return ub - ua;
+        return Math.random() - 0.5;
+      });
+    const targetNeed = Math.min(need, employees.length - hardOffIds.size);
+    while (working.length < targetNeed && pool.length) {
+      const e = pool.shift();
+      working.push(e);
+      alreadyIn.add(e.id);
+    }
+  }
 
   const workingIds = new Set(working.map(e => e.id));
   const plan = getShiftPlan(working.length);
@@ -1567,10 +1622,18 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   const assigned = {};
   const shiftCount = {}; // max 2 osoby na tę samą zmianę
 
+  // Uczeń może dostać S1/S5 tylko gdy na tej zmianie jest już ktoś (nie samodzielnie)
+  const studentOk = (emp, code) => {
+    if (!isStudentEmp(emp)) return true;
+    if (code !== 'S1' && code !== 'S5') return true;
+    return (shiftCount[code] || 0) >= 1;
+  };
+
   // Preferencje zmiany (max 2 na tę samą)
   for (const e of working) {
     const p = getPref(day.ds, e.id);
     if (!p || p.type !== 'shift') continue;
+    if (!studentOk(e, p.code)) continue;
     const already = shiftCount[p.code] || 0;
     if (already >= 2) continue;
     const exactIdx = remainingPlan.indexOf(p.code);
@@ -1598,6 +1661,9 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (remainingPlan.length === 0) break;
     const last = lastShift[e.id];
     remainingPlan.sort((x, y) => {
+      const sx = studentOk(e, x) ? 0 : 1;
+      const sy = studentOk(e, y) ? 0 : 1;
+      if (sx !== sy) return sx - sy;
       const ax = shiftAllowedAfter(last, x) ? 0 : 1;
       const ay = shiftAllowedAfter(last, y) ? 0 : 1;
       if (ax !== ay) return ax - ay;
@@ -1613,15 +1679,19 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       };
       return roleScore(x) - roleScore(y);
     });
-    let bestIdx = remainingPlan.findIndex(c => (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c));
+    let bestIdx = remainingPlan.findIndex(c =>
+      (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+    );
     if (bestIdx === -1) {
       let bestD = 99;
       remainingPlan.forEach((c, i) => {
         if ((shiftCount[c] || 0) >= 2) return;
+        if (!studentOk(e, c)) return;
         const d = shiftDist(c, last);
         if (d < bestD) { bestD = d; bestIdx = i; }
       });
     }
+    if (bestIdx === -1) bestIdx = remainingPlan.findIndex(c => studentOk(e, c));
     if (bestIdx === -1) bestIdx = 0;
     const code = remainingPlan[bestIdx];
     assigned[e.id] = code;
@@ -1639,6 +1709,9 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (remainingPlan.length === 0) break;
     const last = lastShift[e.id];
     remainingPlan.sort((x, y) => {
+      const sx = studentOk(e, x) ? 0 : 1;
+      const sy = studentOk(e, y) ? 0 : 1;
+      if (sx !== sy) return sx - sy;
       const ax = shiftAllowedAfter(last, x) ? 0 : 1;
       const ay = shiftAllowedAfter(last, y) ? 0 : 1;
       if (ax !== ay) return ax - ay;
@@ -1656,16 +1729,19 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       if (rs !== 0) return rs;
       return roleOrder[SHIFTS[x].role] - roleOrder[SHIFTS[y].role];
     });
-    // Twardo: dozwolone przejście (w tym S5→min S3); jeśli brak — najbliższą dostępną
-    let bestIdx = remainingPlan.findIndex(c => (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c));
+    let bestIdx = remainingPlan.findIndex(c =>
+      (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+    );
     if (bestIdx === -1) {
       let bestD = 99;
       remainingPlan.forEach((c, i) => {
         if ((shiftCount[c] || 0) >= 2) return;
+        if (!studentOk(e, c)) return;
         const d = shiftDist(c, last);
         if (d < bestD) { bestD = d; bestIdx = i; }
       });
     }
+    if (bestIdx === -1) bestIdx = remainingPlan.findIndex(c => studentOk(e, c));
     if (bestIdx === -1) bestIdx = 0;
     const code = remainingPlan[bestIdx];
     assigned[e.id] = code;
@@ -1681,13 +1757,17 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   for (const code of remainingPlan) {
     if ((shiftCount[code] || 0) >= 2) continue;
     const role = SHIFTS[code].role;
-    const pool = withoutHistory.filter(e => !assigned[e.id]);
+    // Otwarcia/zamknięcia: najpierw nie-uczniowie (uczniowie tylko gdy już ktoś jest na zmianie)
+    let pool = withoutHistory.filter(e => !assigned[e.id] && studentOk(e, code));
     if (pool.length === 0) {
-      const any = unassigned.filter(e => !assigned[e.id]);
-      if (!any.length) break;
-      pool.push(...any);
+      pool = unassigned.filter(e => !assigned[e.id] && studentOk(e, code));
     }
+    if (pool.length === 0) continue;
     pool.sort((a, b) => {
+      // Preferuj nie-uczniów przy pierwszym zajęciu S1/S5
+      const sa = isStudentEmp(a) ? 1 : 0;
+      const sb = isStudentEmp(b) ? 1 : 0;
+      if (sa !== sb) return sa - sb;
       const countFor = id => role === 'open' ? openCnt[id] : role === 'close' ? closeCnt[id] : midCnt[id];
       const ca = countFor(a.id), cb = countFor(b.id);
       if (ca !== cb) return ca - cb;
@@ -1695,6 +1775,20 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     });
     assigned[pool[0].id] = code;
     shiftCount[code] = (shiftCount[code] || 0) + 1;
+  }
+
+  // Osoby bez przydziału — daj pozostałą zmianę z planu lub S3
+  for (const e of working) {
+    if (assigned[e.id]) continue;
+    const midIdx = remainingPlan.findIndex(c => studentOk(e, c) && (shiftCount[c] || 0) < 2);
+    if (midIdx !== -1) {
+      const code = remainingPlan[midIdx];
+      assigned[e.id] = code;
+      remainingPlan.splice(midIdx, 1);
+      shiftCount[code] = (shiftCount[code] || 0) + 1;
+    } else {
+      assigned[e.id] = 'S3';
+    }
   }
 
   for (const e of employees) {
@@ -1711,11 +1805,16 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       continue;
     }
 
-    const code = assigned[e.id];
+    let code = assigned[e.id];
+    // Uczeń solo na S1/S5 → środkowa (post-pass też to dogląda)
+    if (code && isStudentEmp(e) && (code === 'S1' || code === 'S5') && (shiftCount[code] || 0) < 2) {
+      // shiftCount zawiera już tego ucznia — solo gdy count === 1
+      if ((shiftCount[code] || 0) <= 1) code = 'S3';
+    }
     consec[e.id]++;
     remaining[e.id]--;
 
-    if (code) {
+    if (code && SHIFTS[code]) {
       scheduleDay[e.id] = SHIFTS[code].label;
       lastShift[e.id] = code;
       if (SHIFTS[code].role === 'open') openCnt[e.id]++;
@@ -1731,9 +1830,11 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   return scheduleDay;
 }
 
+/** Liczy obsadę dnia bez uczniów (uczniowie nie kompletują minimum). */
 function countWorkingOnDay(schedule, day, employees) {
   let n = 0;
   for (const e of employees) {
+    if (isStudentEmp(e)) continue;
     if (isWorkingVal(schedule[day.ds]?.[e.id])) n++;
   }
   return n;
@@ -1747,7 +1848,8 @@ function hasOpenCloseCoverage(schedule, day, employees, excludeEmpId) {
     if (e.id === excludeEmpId) continue;
     const val = schedule[day.ds]?.[e.id];
     if (!isWorkingVal(val)) continue;
-    count++;
+    // Uczniowie nie wliczają się do minimalnej obsady
+    if (!isStudentEmp(e)) count++;
     if (val === SHIFTS.S1.label) hasOpen = true;
     if (val === SHIFTS.S5.label) hasClose = true;
   }
@@ -1791,6 +1893,8 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
     if (p?.type === 'shift' && p.code === currentCode) return false;
     return true;
   };
+  // Uczniowie nie biorą udziału w sprawiedliwym rozdzielaniu otwarć/zamknięć
+  const regulars = employees.filter(e => !isStudentEmp(e));
 
   const dayIndex = {};
   openDays.forEach((d, i) => { dayIndex[d.ds] = i; });
@@ -1836,11 +1940,11 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
     return true;
   };
 
-  // Najpierw otwarcia, potem zamknięcia — agresywnie max−min ≤ 1
+  // Najpierw otwarcia, potem zamknięcia — agresywnie max−min ≤ 1 (tylko nie-uczniowie)
   for (const role of ['open', 'close']) {
     for (let pass = 0; pass < 80; pass++) {
       const counts = computeRoleCounts(employees, openDays, schedule);
-      const active = employees.filter(e =>
+      const active = regulars.filter(e =>
         (counts[e.id].open + counts[e.id].close + counts[e.id].mid) > 0
       );
       if (active.length < 2) break;
@@ -1874,14 +1978,14 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
     }
   }
 
-  // Lokalne zamiany open↔mid / close↔mid gdy różnica ≥ 1
+  // Lokalne zamiany open↔mid / close↔mid gdy różnica ≥ 1 (bez uczniów jako odbiorców open/close)
   for (let pass = 0; pass < 60; pass++) {
     const counts = computeRoleCounts(employees, openDays, schedule);
     let improved = false;
 
     for (const day of openDays) {
       if (day.closed) continue;
-      const workers = employees.filter(e => isWorkingVal(schedule[day.ds][e.id]));
+      const workers = regulars.filter(e => isWorkingVal(schedule[day.ds][e.id]));
 
       for (let i = 0; i < workers.length; i++) {
         for (let j = 0; j < workers.length; j++) {
@@ -1930,7 +2034,9 @@ function rebalanceStaffing(employees, openDays, schedule) {
     let workingCount = countWorkingOnDay(schedule, deficitDay, employees);
     if (workingCount >= targetMin) continue;
 
+    // Tylko nie-uczniowie kompletują minimum obsady
     const candidates = employees.filter(e => {
+      if (isStudentEmp(e)) return false;
       if (isCellLocked(deficitDay.ds, e.id)) return false;
       const val = schedule[deficitDay.ds][e.id];
       if (val !== 'Wolne') return false;
@@ -1961,7 +2067,7 @@ function rebalanceStaffing(employees, openDays, schedule) {
       if (!bestSource) continue;
 
       schedule[bestSource.day.ds][e.id] = 'Wolne';
-      schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule)].label;
+      schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule, null, e)].label;
       workingCount++;
     }
   }
@@ -1983,6 +2089,73 @@ function fillHoursDeficit(employees, openDays, activeDays, schedule, quota) {
         deficit--;
       }
     }
+  }
+}
+
+/**
+ * Usuń nadgodziny: gdy ktoś ma więcej dni etatu niż quota,
+ * oddaj zbędny dzień (Wolne), o ile min. obsada i open/close się utrzymają.
+ */
+function trimOvertime(employees, openDays, schedule, quota) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  for (let pass = 0; pass < 40; pass++) {
+    let trimmed = false;
+
+    for (const e of employees) {
+      let excess = etatDays(e.id, openDays, schedule) - quota[e.id];
+      if (excess <= 0) continue;
+
+      const workDays = activeDays.filter(day => {
+        if (isCellLocked(day.ds, e.id)) return false;
+        if (!isWorkingVal(schedule[day.ds][e.id])) return false;
+        // Preferencji hard-off nie ruszamy
+        if (isHardOff(getPref(day.ds, e.id))) return false;
+
+        // Po usunięciu e obsada regularna nadal ≥ minimum
+        const regularsLeft = employees.filter(o =>
+          o.id !== e.id &&
+          !isStudentEmp(o) &&
+          isWorkingVal(schedule[day.ds][o.id])
+        ).length;
+        if (regularsLeft < minStaffForDay(day)) return false;
+
+        // Nie zabieraj jedynego otwarcia / zamknięcia
+        const val = schedule[day.ds][e.id];
+        if (val === SHIFTS.S1.label) {
+          const otherOpen = employees.some(o =>
+            o.id !== e.id && schedule[day.ds][o.id] === SHIFTS.S1.label
+          );
+          if (!otherOpen) return false;
+        }
+        if (val === SHIFTS.S5.label) {
+          const otherClose = employees.some(o =>
+            o.id !== e.id && schedule[day.ds][o.id] === SHIFTS.S5.label
+          );
+          if (!otherClose) return false;
+        }
+        return true;
+      });
+
+      if (!workDays.length) continue;
+
+      workDays.sort((a, b) => {
+        // Najpierw soboty (łatwiej o wolne soboty), potem dni z większą nadwyżką obsady
+        const satA = a.dow === 6 ? 0 : 1;
+        const satB = b.dow === 6 ? 0 : 1;
+        if (satA !== satB) return satA - satB;
+        const surplus = day =>
+          employees.filter(o =>
+            o.id !== e.id && !isStudentEmp(o) && isWorkingVal(schedule[day.ds][o.id])
+          ).length - minStaffForDay(day);
+        return surplus(b) - surplus(a) || b.d - a.d;
+      });
+
+      schedule[workDays[0].ds][e.id] = 'Wolne';
+      trimmed = true;
+    }
+
+    if (!trimmed) break;
   }
 }
 
@@ -2030,7 +2203,7 @@ function ensureHourQuotas(employees, openDays, schedule, quota) {
         // Brak bezpieczniejszej opcji — i tak dopisz (etat > limit)
       }
 
-      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule, null, e)].label;
       deficit--;
     }
   }
@@ -2058,7 +2231,7 @@ function ensureHourQuotas(employees, openDays, schedule, quota) {
       );
 
       if (donors.length === 0) {
-        schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+        schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule, null, e)].label;
         deficit--;
         continue;
       }
@@ -2066,7 +2239,7 @@ function ensureHourQuotas(employees, openDays, schedule, quota) {
       const donor = donors[0];
       // Donor oddaje dzień (Wolne), e przejmuje sensowną zmianę
       schedule[day.ds][donor.id] = 'Wolne';
-      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule, null, e)].label;
       deficit--;
     }
   }
@@ -2075,7 +2248,7 @@ function ensureHourQuotas(employees, openDays, schedule, quota) {
 const LABEL_TO_CODE = Object.fromEntries(SHIFT_CODES.map(c => [SHIFTS[c].label, c]));
 const labelToShiftCode = label => LABEL_TO_CODE[label] || null;
 
-function pickShiftCodeForDay(day, employees, schedule, excludeId) {
+function pickShiftCodeForDay(day, employees, schedule, excludeId, forEmp) {
   let hasOpen = false, hasClose = false;
   const used = new Set();
   for (const o of employees) {
@@ -2086,12 +2259,74 @@ function pickShiftCodeForDay(day, employees, schedule, excludeId) {
     if (v === SHIFTS.S1.label) hasOpen = true;
     if (v === SHIFTS.S5.label) hasClose = true;
   }
+  // Uczeń: S1/S5 tylko gdy ktoś już jest na tej zmianie; inaczej środkowa
+  if (forEmp && isStudentEmp(forEmp)) {
+    const countLabel = label => employees.filter(o =>
+      (!excludeId || o.id !== excludeId) && schedule[day.ds][o.id] === label
+    ).length;
+    const openN = countLabel(SHIFTS.S1.label);
+    const closeN = countLabel(SHIFTS.S5.label);
+    if (openN >= 1 && openN < 2) return 'S1';
+    if (closeN >= 1 && closeN < 2) return 'S5';
+    if (!used.has(SHIFTS.S2.label)) return 'S2';
+    if (!used.has(SHIFTS.S3.label)) return 'S3';
+    if (!used.has(SHIFTS.S4.label)) return 'S4';
+    return 'S3';
+  }
   if (!hasOpen) return 'S1';
   if (!hasClose) return 'S5';
   if (!used.has(SHIFTS.S2.label)) return 'S2';
   if (!used.has(SHIFTS.S3.label)) return 'S3';
   if (!used.has(SHIFTS.S4.label)) return 'S4';
   return 'S3';
+}
+
+/**
+ * Uczeń na S1/S5 tylko gdy ktoś inny jest na tej samej zmianie.
+ * Jeśli solo — spróbuj dobić partnera (nie-uczeń ze środkowej) albo przenieś ucznia na środkową.
+ */
+function enforceStudentNoOpenClose(employees, openDays, schedule) {
+  for (const day of openDays) {
+    if (day.closed) continue;
+
+    for (const code of ['S1', 'S5']) {
+      const onShift = employees.filter(e =>
+        isWorkingVal(schedule[day.ds]?.[e.id]) &&
+        labelToShiftCode(schedule[day.ds][e.id]) === code
+      );
+      if (onShift.length === 0) continue;
+
+      const others = onShift.filter(e => !isStudentEmp(e));
+      const students = onShift.filter(e => isStudentEmp(e));
+      // Jest nie-uczeń na zmianie → uczniowie mogą zostać
+      if (others.length > 0) continue;
+      // Tylko uczniowie (lub jeden uczeń solo) — nie mogą samodzielnie otwierać/zamykać
+      for (const e of students) {
+        if (isCellLocked(day.ds, e.id)) continue;
+
+        // Spróbuj dobić partnera: nie-uczeń ze środkowej → ta sama zmiana
+        let paired = false;
+        for (const o of employees) {
+          if (o.id === e.id || isStudentEmp(o)) continue;
+          if (isCellLocked(day.ds, o.id)) continue;
+          if (!isWorkingVal(schedule[day.ds][o.id])) continue;
+          const oCode = labelToShiftCode(schedule[day.ds][o.id]);
+          if (!oCode || SHIFTS[oCode].role !== 'mid') continue;
+          const op = getPref(day.ds, o.id);
+          if (op?.type === 'shift' && op.code === oCode) continue;
+          // max 2 na zmianę — onShift.length to sami uczniowie
+          if (onShift.length >= 2) break;
+          schedule[day.ds][o.id] = SHIFTS[code].label;
+          paired = true;
+          break;
+        }
+        if (paired) continue;
+
+        // Brak partnera → uczeń na zmianę środkową
+        schedule[day.ds][e.id] = SHIFTS.S3.label;
+      }
+    }
+  }
 }
 
 function computeRoleCounts(employees, openDays, schedule) {
@@ -2181,11 +2416,11 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
 
       // Zamiana soboty: needy → Wolne, rich → praca (przejmuje sensowną zmianę)
       schedule[sat.ds][needy.id] = 'Wolne';
-      schedule[sat.ds][rich.id] = SHIFTS[pickShiftCodeForDay(sat, employees, schedule, needy.id)].label;
+      schedule[sat.ds][rich.id] = SHIFTS[pickShiftCodeForDay(sat, employees, schedule, needy.id, rich)].label;
 
       // Kompensata weekday: rich → Wolne, needy → praca
       schedule[compDay.ds][rich.id] = 'Wolne';
-      schedule[compDay.ds][needy.id] = SHIFTS[pickShiftCodeForDay(compDay, employees, schedule, rich.id)].label;
+      schedule[compDay.ds][needy.id] = SHIFTS[pickShiftCodeForDay(compDay, employees, schedule, rich.id, needy)].label;
 
       swapped = true;
       break;
@@ -2232,6 +2467,20 @@ function smoothShiftTransitions(employees, openDays, schedule) {
         for (const w of workers) {
           const wCode = labelToShiftCode(schedule[day.ds][w.id]);
           if (!wCode) continue;
+          // Po zamianie uczeń nie może zostać sam na S1/S5
+          const wouldLeaveStudentSolo = (who, getsCode) => {
+            if (!isStudentEmp(who)) return false;
+            if (getsCode !== 'S1' && getsCode !== 'S5') return false;
+            const others = employees.filter(x =>
+              x.id !== who.id &&
+              isWorkingVal(schedule[day.ds][x.id]) &&
+              labelToShiftCode(schedule[day.ds][x.id]) === getsCode
+            );
+            // partner w tej zamianie: jeśli ktoś oddaje tę zmianę, nie liczy się
+            return others.length === 0;
+          };
+          if (wouldLeaveStudentSolo(e, wCode)) continue;
+          if (wouldLeaveStudentSolo(w, curCode)) continue;
           const wp = getPref(day.ds, w.id);
           if (wp?.type === 'shift' && wp.code === wCode) continue;
 
@@ -2312,6 +2561,8 @@ function fulfillShiftPreferences(employees, openDays, schedule) {
       if (isCellLocked(day.ds, e.id)) continue;
       const p = getPref(day.ds, e.id);
       if (!p || p.type !== 'shift' || !SHIFTS[p.code]) continue;
+      // Uczeń: preferencja S1/S5 tylko gdy ktoś już jest na tej zmianie
+      if (isStudentEmp(e) && (p.code === 'S1' || p.code === 'S5') && countLabel(SHIFTS[p.code].label) < 1) continue;
       const expected = SHIFTS[p.code].label;
       if (schedule[day.ds][e.id] === expected) continue;
 
@@ -2324,6 +2575,14 @@ function fulfillShiftPreferences(employees, openDays, schedule) {
         const wp = getPref(day.ds, w.id);
         if (wp?.type === 'shift' && SHIFTS[wp.code]?.label === expected) continue;
         const myLabel = schedule[day.ds][e.id];
+        const myCode = labelToShiftCode(myLabel);
+        // Po zamianie uczeń w nie może zostać sam na S1/S5
+        if (isStudentEmp(w) && (myCode === 'S1' || myCode === 'S5')) {
+          const othersOnMy = workers.filter(x =>
+            x.id !== w.id && x.id !== e.id && schedule[day.ds][x.id] === myLabel
+          );
+          if (othersOnMy.length === 0) continue;
+        }
         schedule[day.ds][e.id] = expected;
         schedule[day.ds][w.id] = myLabel;
         swapped = true;
@@ -2332,12 +2591,14 @@ function fulfillShiftPreferences(employees, openDays, schedule) {
       if (swapped) continue;
 
       // 2) Wolne miejsce na preferred (< 2) — ustaw bezpośrednio
+      // Uczeń dołącza do S1/S5 tylko gdy już jest co najmniej 1 osoba
       if (countLabel(expected) < 2) {
+        if (isStudentEmp(e) && (p.code === 'S1' || p.code === 'S5') && countLabel(expected) < 1) continue;
         schedule[day.ds][e.id] = expected;
       }
     }
 
-    // Utrzymaj open + close
+    // Utrzymaj open + close — pierwszeństwo nie-uczniów (samodzielne otwarcie/zamknięcie)
     let hasOpen = false, hasClose = false;
     for (const w of workers) {
       const v = schedule[day.ds][w.id];
@@ -2346,6 +2607,7 @@ function fulfillShiftPreferences(employees, openDays, schedule) {
     }
     if (!hasOpen || !hasClose) {
       for (const w of workers) {
+        if (isStudentEmp(w)) continue;
         const wp = getPref(day.ds, w.id);
         if (wp?.type === 'shift') continue;
         if (!hasOpen) {
@@ -2367,6 +2629,7 @@ function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUr
   for (const day of openDays) {
     if (day.closed) continue;
 
+    // Obsada minimalna bez uczniów
     let workingCount = 0;
     let hasOpen = false;
     let hasClose = false;
@@ -2375,7 +2638,7 @@ function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUr
     for (const e of employees) {
       const val = schedule[day.ds][e.id];
       if (!isWorkingVal(val)) continue;
-      workingCount++;
+      if (!isStudentEmp(e)) workingCount++;
       if (val === SHIFTS.S1.label) hasOpen = true;
       if (val === SHIFTS.S5.label) hasClose = true;
     }
@@ -2383,7 +2646,7 @@ function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUr
     if (workingCount < targetMin) {
       const satNote = day.dow === 6 ? ` (sobota, docelowo ${MIN_STAFF_SATURDAY})` : '';
       warnings.push(
-        `Dzień ${day.d}.${curMonth}: Niska obsada salonu (${workingCount} os.). Minimum: ${targetMin}${satNote}.`
+        `Dzień ${day.d}.${curMonth}: Niska obsada salonu (${workingCount} os. bez uczniów). Minimum: ${targetMin}${satNote}.`
       );
     } else {
       if (!hasOpen) {
@@ -2487,14 +2750,21 @@ function generateSchedule() {
 
   rebalanceStaffing(employees, openDays, schedule);
   ensureHourQuotas(employees, openDays, schedule, quota);
+  trimOvertime(employees, openDays, schedule, quota);
   equalizeFreeSaturdays(employees, openDays, schedule);
   fillHoursDeficit(employees, openDays, activeDays, schedule, quota);
+  // Po kompensatach sobót / urlopu — ponownie zetnij nadgodziny
+  trimOvertime(employees, openDays, schedule, quota);
   fulfillShiftPreferences(employees, openDays, schedule);
   // Open/close fairness, then ±1 / S5→min S3 transitions
   equalizeOpenCloseRoles(employees, openDays, schedule);
   smoothShiftTransitions(employees, openDays, schedule);
   equalizeOpenCloseRoles(employees, openDays, schedule);
   smoothShiftTransitions(employees, openDays, schedule);
+  // Uczeń: otwarcie/zamknięcie tylko z partnerem na tej samej zmianie
+  enforceStudentNoOpenClose(employees, openDays, schedule);
+  // Finalne przycięcie nadgodzin (post-passy mogły coś dopisać)
+  trimOvertime(employees, openDays, schedule, quota);
 
   // Ponownie wymuś zablokowane wartości (post-pass nie może ich nadpisać)
   applyLockedCellsToSchedule(schedule, openDays, employees);
@@ -2745,7 +3015,14 @@ function xlStyleForVal(val, day) {
 }
 
 function exportExcel() {
-  if (!state.lastSchedule) return;
+  if (!state.lastSchedule) {
+    alert('Najpierw wygeneruj grafik.');
+    return;
+  }
+  if (typeof XLSX === 'undefined') {
+    alert('Biblioteka Excel nie jest załadowana. Sprawdź połączenie z internetem lub folder vendor/xlsx.min.js, a następnie odśwież stronę.');
+    return;
+  }
 
   const { employees, curMonth, curYear } = state;
   const ls = state.lastSchedule;
@@ -2900,10 +3177,17 @@ function fitCanvasToA4(srcCanvas) {
 }
 
 async function exportJpg() {
-  if (!state.lastSchedule) return;
+  if (!state.lastSchedule) {
+    alert('Najpierw wygeneruj grafik.');
+    return;
+  }
   const panel = document.querySelector('#output .panel');
-  if (!panel || typeof html2canvas !== 'function') {
-    alert('Nie można wygenerować obrazu. Odśwież stronę i spróbuj ponownie.');
+  if (!panel) {
+    alert('Brak wygenerowanego grafiku do eksportu.');
+    return;
+  }
+  if (typeof html2canvas !== 'function') {
+    alert('Biblioteka JPG (html2canvas) nie jest załadowana. Sprawdź połączenie z internetem lub folder vendor/html2canvas.min.js, a następnie odśwież stronę.');
     return;
   }
   const { curMonth, curYear } = state;
