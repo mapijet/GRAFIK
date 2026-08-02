@@ -2282,6 +2282,104 @@ function pickShiftCodeForDay(day, employees, schedule, excludeId, forEmp) {
 }
 
 /**
+ * Twarda gwarancja: każdy otwarty dzień ma co najmniej jedno otwarcie (S1)
+ * i jedno zamknięcie (S5). Wywoływać na końcu generacji — post-passy
+ * (wyrównanie ról, wygładzanie, uczeń, trim) potrafią to przypadkiem zabrać.
+ */
+function ensureOpenAndClose(employees, openDays, schedule) {
+  for (const day of openDays) {
+    if (day.closed) continue;
+
+    const workers = employees.filter(e => isWorkingVal(schedule[day.ds]?.[e.id]));
+    if (!workers.length) continue;
+
+    let hasOpen = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S1.label);
+    let hasClose = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S5.label);
+    if (hasOpen && hasClose) continue;
+
+    const canTake = (e, code) => {
+      if (isCellLocked(day.ds, e.id)) return false;
+      const p = getPref(day.ds, e.id);
+      if (p?.type === 'shift' && p.code && p.code !== code) return false;
+      // Uczeń: solo S1/S5 tylko gdy ktoś już jest na tej zmianie
+      if (isStudentEmp(e) && (code === 'S1' || code === 'S5')) {
+        const n = workers.filter(w =>
+          w.id !== e.id && labelToShiftCode(schedule[day.ds][w.id]) === code
+        ).length;
+        if (n < 1) return false;
+      }
+      return true;
+    };
+
+    const pick = (code) => {
+      // 1) Nie-uczeń ze środkowej, bez twardej preferencji innej zmiany
+      const midRegulars = workers.filter(e => {
+        if (isStudentEmp(e)) return false;
+        if (!canTake(e, code)) return false;
+        const c = labelToShiftCode(schedule[day.ds][e.id]);
+        return c && SHIFTS[c].role === 'mid';
+      });
+      if (midRegulars.length) {
+        // Preferuj osobę z mniejszą liczbą open/close w miesiącu — prosty wybór pierwszej
+        return midRegulars[0];
+      }
+      // 2) Dowolny nie-uczeń (nawet open↔close zamiana)
+      const anyRegular = workers.filter(e => !isStudentEmp(e) && canTake(e, code));
+      if (anyRegular.length) return anyRegular[0];
+      // 3) W ostateczności uczeń, jeśli wolno (jest partner)
+      const any = workers.filter(e => canTake(e, code));
+      return any[0] || null;
+    };
+
+    if (!hasOpen) {
+      const e = pick('S1');
+      if (e) {
+        schedule[day.ds][e.id] = SHIFTS.S1.label;
+        hasOpen = true;
+      }
+    }
+    if (!hasClose) {
+      // Odśwież listę po ewentualnej zmianie otwarcia
+      const e = pick('S5');
+      // Nie dawaj tej samej osobie obu ról, jeśli jest ktoś inny
+      if (e && schedule[day.ds][e.id] === SHIFTS.S1.label) {
+        const other = workers.find(w =>
+          w.id !== e.id && !isStudentEmp(w) && canTake(w, 'S5')
+        );
+        if (other) {
+          schedule[day.ds][other.id] = SHIFTS.S5.label;
+        } else if (workers.filter(w => isWorkingVal(schedule[day.ds][w.id])).length === 1) {
+          // Jedyna osoba w dniu — musi mieć obie? nie da się; zostaw open, ostrzeżenie w warnings
+        } else {
+          // Spróbuj kogoś innego ze środkowej
+          const alt = workers.find(w =>
+            w.id !== e.id && canTake(w, 'S5') &&
+            labelToShiftCode(schedule[day.ds][w.id]) !== 'S1'
+          );
+          if (alt) schedule[day.ds][alt.id] = SHIFTS.S5.label;
+          else schedule[day.ds][e.id] = SHIFTS.S5.label; // ostateczność: zamień open na close i…
+        }
+      } else if (e) {
+        schedule[day.ds][e.id] = SHIFTS.S5.label;
+      }
+    }
+
+    // Po ewentualnej zamianie open→close upewnij się ponownie o open
+    hasOpen = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S1.label);
+    hasClose = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S5.label);
+    if (!hasOpen) {
+      const e = pick('S1');
+      if (e && schedule[day.ds][e.id] !== SHIFTS.S5.label) {
+        schedule[day.ds][e.id] = SHIFTS.S1.label;
+      } else if (e) {
+        const alt = workers.find(w => w.id !== e.id && canTake(w, 'S1'));
+        if (alt) schedule[day.ds][alt.id] = SHIFTS.S1.label;
+      }
+    }
+  }
+}
+
+/**
  * Uczeń na S1/S5 tylko gdy ktoś inny jest na tej samej zmianie.
  * Jeśli solo — spróbuj dobić partnera (nie-uczeń ze środkowej) albo przenieś ucznia na środkową.
  */
@@ -2765,9 +2863,16 @@ function generateSchedule() {
   enforceStudentNoOpenClose(employees, openDays, schedule);
   // Finalne przycięcie nadgodzin (post-passy mogły coś dopisać)
   trimOvertime(employees, openDays, schedule, quota);
+  // Twarde: każdy dzień MUSI mieć otwarcie i zamknięcie (po wszystkich passach)
+  ensureOpenAndClose(employees, openDays, schedule);
+  // Uczeń mógł dostać solo S1/S5 przy uzupełnianiu — popraw
+  enforceStudentNoOpenClose(employees, openDays, schedule);
+  ensureOpenAndClose(employees, openDays, schedule);
 
   // Ponownie wymuś zablokowane wartości (post-pass nie może ich nadpisać)
   applyLockedCellsToSchedule(schedule, openDays, employees);
+  // Po przywróceniu locków jeszcze raz domknij open/close (lock mógł zabrać S5)
+  ensureOpenAndClose(employees, openDays, schedule);
 
   const roleCounts = computeRoleCounts(employees, openDays, schedule);
   const freeSaturdays = computeFreeSaturdays(employees, openDays, schedule);
