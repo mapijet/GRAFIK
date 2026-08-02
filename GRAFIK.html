@@ -5,224 +5,358 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generator grafiku — Salon PLAY</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#5c108c">
+<meta name="theme-color" content="#220040">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
 <script src="vendor/xlsx.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'"></script>
 <script src="vendor/html2canvas.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --play-purple: #5c108c;
-    --play-purple-dark: #3d0a5c;
-    --play-purple-mid: #7b1fa2;
-    --play-purple-light: #f5eef9;
-    --play-purple-soft: #ede0f5;
-    --ink: #1a1a1a;
-    --muted: #6b7280;
-    --paper: #f4f5f7;
+    /* Play brand tokens (play.pl design system) */
+    --play-purple: #6c43bf;          /* purple500 */
+    --play-purple-dark: #220040;     /* primary brand dark */
+    --play-purple-mid: #48227d;      /* purple700 */
+    --play-purple-deep: #201339;     /* secondary dark */
+    --play-purple-light: #f0ecf9;    /* container accent secondary light */
+    --play-purple-soft: #e4dcf3;
+    --play-cyan: #00c8ff;            /* CTA accent on play.pl */
+    --play-yellow: #fff200;          /* promo yellow */
+    --ink: #26232c;                  /* gray900 */
+    --ink-soft: #3d3a44;
+    --muted: #6f6c74;                /* gray600 */
+    --paper: #f7f7f7;                /* gray100 light */
     --panel: #ffffff;
-    --line: #e8e8ec;
-    --line-strong: #d4d4da;
-    --good: #15803d;
-    --bad: #c02626;
-    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --mono: 'JetBrains Mono', Consolas, monospace;
-    --radius: 12px;
-    --content-max: 1200px;
+    --line: #e8e4ef;
+    --line-strong: #d6d6d6;          /* gray200 */
+    --good: #1b6f64;
+    --good-bg: #ecfdf5;
+    --bad: #e6144b;                  /* brand sticker / alert red */
+    --bad-bg: #fef2f5;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-xs: 8px;
+    --content-max: 1180px;
+    --shadow-sm: 0 1px 2px rgba(34, 0, 64, 0.05);
+    --shadow-md: 0 4px 16px rgba(34, 0, 64, 0.08), 0 1px 3px rgba(34, 0, 64, 0.04);
+    --shadow-lg: 0 10px 32px rgba(34, 0, 64, 0.12), 0 2px 6px rgba(34, 0, 64, 0.05);
+    --focus-ring: 0 0 0 3px rgba(108, 67, 191, 0.28);
   }
+
   * { box-sizing: border-box; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     margin: 0;
-    background: var(--paper);
+    background:
+      radial-gradient(1200px 600px at 8% -12%, rgba(108, 67, 191, 0.10), transparent 55%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34, 0, 64, 0.06), transparent 50%),
+      var(--paper);
     color: var(--ink);
     font-family: var(--sans);
-    padding: 12px 10px 32px;
-    font-size: 13px;
+    padding: 16px 14px 40px;
+    font-size: 14px;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
   }
+
   h1 {
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 800;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.02em;
     margin: 0;
     color: #fff;
     white-space: nowrap;
+    line-height: 1.25;
   }
+
+  @media (min-width: 640px) {
+    h1 { font-size: 17px; }
+  }
+
   .top-bar-brand {
     display: flex;
     align-items: center;
     gap: 12px;
     min-width: 0;
   }
+
   .top-bar-logo {
-    height: 40px;
+    height: 42px;
     width: auto;
     display: block;
     flex-shrink: 0;
-    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.2));
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
   }
+
   .sub {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: 12px;
     margin: 0;
-    line-height: 1.35;
+    line-height: 1.4;
   }
+
+  /* ——— View switcher ——— */
   .view-switch {
     display: flex;
     max-width: var(--content-max);
-    margin: 0 auto 12px;
-    background: #fff;
+    margin: 0 auto 14px;
+    background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 4px;
+    border-radius: 12px;
+    padding: 5px;
     gap: 4px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: var(--shadow-sm);
     width: fit-content;
+    max-width: calc(100% - 4px);
+    flex-wrap: wrap;
+    justify-content: center;
   }
+
   .view-switch button {
     background: transparent;
     color: var(--play-purple-dark);
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 0.03em;
-    padding: 9px 20px;
-    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 10px 16px;
+    border-radius: 9px;
     border: none;
     box-shadow: none;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
+
   .view-switch button:hover {
     background: var(--play-purple-light);
   }
+
   .view-switch button.active {
     background: var(--play-purple);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(92, 16, 140, 0.28);
+    box-shadow: 0 2px 10px rgba(34, 0, 64, 0.35);
   }
+
   .view-panel {
     max-width: var(--content-max);
     width: 100%;
     margin: 0 auto;
   }
+
   .view-panel[hidden] {
     display: none !important;
   }
+
   #view-options .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 14px;
     max-width: none;
   }
+
   #view-generator {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
   }
+
   #view-generator .generate-bar,
   #view-generator #warnings,
   #view-generator #output {
     max-width: none;
     width: 100%;
   }
+
   .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 14px;
     max-width: var(--content-max);
   }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    #view-options .grid { grid-template-columns: 1fr; }
+  }
+
+  /* ——— Panels ——— */
   .panel {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 12px 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(92,16,140,0.04);
+    padding: 16px 18px;
+    box-shadow: var(--shadow-md);
   }
+
   .panel h2 {
-    font-size: 10.5px;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.08em;
     color: var(--play-purple);
     margin: 0;
     font-weight: 800;
   }
+
   .panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--play-purple-light);
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--play-purple-soft);
+    gap: 10px;
   }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+
+  /* ——— Tables ——— */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+  }
+
   th, td {
     border: 1px solid var(--line);
-    padding: 3px 5px;
+    padding: 6px 8px;
     text-align: center;
   }
+
   th {
     background: var(--play-purple-light);
     color: var(--play-purple-dark);
     font-weight: 700;
-    font-size: 10.5px;
+    font-size: 11.5px;
+    letter-spacing: 0.01em;
+    vertical-align: middle;
   }
-  input[type=text], input[type=number], select {
+
+  #empTable th {
+    vertical-align: middle;
+    padding: 10px 8px;
+  }
+
+  /* ——— Form controls ——— */
+  input[type=text],
+  input[type=number],
+  select {
     font-family: var(--sans);
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 500;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
-    padding: 4px 6px;
+    border-radius: var(--radius-xs);
+    padding: 7px 9px;
     width: 100%;
     background: #fff;
     color: var(--ink);
-    transition: border-color .15s, box-shadow .15s;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    line-height: 1.3;
   }
+
+  input:hover, select:hover {
+    border-color: #c4b5d0;
+  }
+
   input:focus, select:focus {
     border-color: var(--play-purple-mid);
     outline: none;
-    box-shadow: 0 0 0 3px rgba(92, 16, 140, 0.12);
+    box-shadow: var(--focus-ring);
   }
-  input[type=number] { width: 62px; }
-  .row-actions { display: flex; gap: 6px; margin-top: 8px; }
+
+  input[type=number] {
+    width: 72px;
+    text-align: center;
+  }
+
+  input[type=checkbox] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--play-purple);
+    cursor: pointer;
+  }
+
+  .row-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* ——— Buttons ——— */
   button {
     font-family: var(--sans);
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
     border: none;
-    border-radius: 8px;
-    padding: 7px 13px;
+    border-radius: var(--radius-sm);
+    padding: 9px 14px;
     cursor: pointer;
-    transition: background .12s, transform .08s, box-shadow .12s;
+    transition: background 0.14s ease, transform 0.08s ease, box-shadow 0.14s ease, color 0.14s ease;
+    line-height: 1.25;
   }
-  button:active { transform: scale(0.98); }
+
+  button:active {
+    transform: scale(0.98);
+  }
+
   .btn-primary {
     background: var(--play-purple);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(92, 16, 140, 0.28);
+    box-shadow: 0 2px 10px rgba(108, 67, 191, 0.30);
   }
-  .btn-primary:hover { background: var(--play-purple-dark); }
+
+  .btn-primary:hover {
+    background: var(--play-purple-dark);
+  }
+
   .btn-secondary {
     background: var(--play-purple-light);
     color: var(--play-purple-dark);
     border: 1px solid var(--play-purple-soft);
   }
-  .btn-secondary:hover { background: var(--play-purple-soft); }
+
+  .btn-secondary:hover {
+    background: var(--play-purple-soft);
+  }
+
   .btn-ghost {
     background: transparent;
     color: var(--bad);
-    text-decoration: underline;
-    padding: 2px 4px;
-    font-size: 11px;
+    text-decoration: none;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
     box-shadow: none;
+    border-radius: var(--radius-xs);
   }
+
+  .btn-ghost:hover {
+    background: var(--bad-bg);
+  }
+
   .month-row {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
   }
-  .month-row select { width: auto; min-width: 110px; }
+
+  .month-row select {
+    width: auto;
+    min-width: 120px;
+  }
+
+  /* ——— Generate bar ——— */
   .generate-bar {
     max-width: var(--content-max);
     margin: 0;
@@ -230,57 +364,83 @@
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
-    gap: 10px 14px;
-    background: linear-gradient(135deg, #5c108c 0%, #7b1fa2 55%, #4a0d72 100%);
-    padding: 12px 14px;
+    gap: 12px 16px;
+    background: linear-gradient(135deg, #220040 0%, #48227d 45%, #6c43bf 100%);
+    padding: 14px 16px;
     border-radius: var(--radius);
-    box-shadow: 0 4px 16px rgba(92, 16, 140, 0.3);
+    box-shadow: 0 6px 20px rgba(34, 0, 64, 0.35);
   }
+
   .generate-bar-lock {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
   }
+
   .generate-bar-lock-label {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
     color: rgba(255, 255, 255, 0.95);
     white-space: nowrap;
   }
+
   .generate-bar > button[data-action="generate"],
   .top-bar .btn-on-purple {
     background: #fff;
-    color: var(--play-purple);
-    font-size: 13px;
+    color: var(--play-purple-dark);
+    font-size: 13.5px;
     font-weight: 800;
-    letter-spacing: 0.04em;
-    padding: 9px 22px;
+    letter-spacing: 0.02em;
+    padding: 11px 22px;
     white-space: nowrap;
-    border-radius: 8px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
     border: none;
   }
+
   .generate-bar > button[data-action="generate"]:hover,
-  .top-bar .btn-on-purple:hover { background: #f8f5fb; }
+  .top-bar .btn-on-purple:hover {
+    background: #f7f4fc;
+  }
+
+  /* Same type size as GENERUJ GRAFIK — consistent bar actions */
   .generate-bar .btn-lock-toggle {
-    padding: 7px 12px;
-    font-size: 12px;
+    padding: 11px 18px;
+    font-size: 13.5px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    box-shadow: none;
   }
+
+  .generate-bar .btn-lock-toggle:hover {
+    background: rgba(255, 255, 255, 0.26);
+    border-color: rgba(255, 255, 255, 0.7);
+  }
+
   .generate-bar .btn-lock-toggle.is-locked {
-    background: #f3f4f6;
-    color: #374151;
-    border: 1px solid #d1d5db;
+    background: #fff;
+    color: var(--play-purple-dark);
+    border: 1.5px solid #fff;
   }
+
   .generate-bar .btn-lock-toggle.is-locked:hover {
-    background: #e5e7eb;
+    background: #f7f4fc;
   }
+
   body.exporting-jpg .sched-table td.editable-cell.locked-cell {
     box-shadow: none;
   }
+
   body.exporting-jpg .sched-table td.editable-cell.locked-cell .cell-label::after {
     content: none;
   }
+
+  /* ——— Warnings ——— */
   #warnings {
     max-width: var(--content-max);
     margin: 0;
@@ -288,12 +448,15 @@
     justify-content: flex-end;
     position: relative;
     z-index: 50;
+    gap: 8px;
   }
+
   #warnings:empty { display: none; }
+
   .warn-badge {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
     background: #dc2626;
     color: #fff;
@@ -303,15 +466,21 @@
     font-size: 18px;
     line-height: 1;
     cursor: pointer;
-    box-shadow: 0 3px 12px rgba(185, 28, 28, 0.4);
+    box-shadow: 0 4px 14px rgba(185, 28, 28, 0.4);
     user-select: none;
     border: 2px solid #fff;
-    margin-left: 8px;
+    transition: transform 0.12s ease;
   }
+
+  .warn-badge:hover {
+    transform: scale(1.06);
+  }
+
   .warn-badge.warn-soft {
     background: #d97706;
-    box-shadow: 0 3px 12px rgba(180, 83, 9, 0.35);
+    box-shadow: 0 4px 14px rgba(180, 83, 9, 0.35);
   }
+
   .warn-badge .warn-count {
     position: absolute;
     top: -6px;
@@ -322,33 +491,37 @@
     border-radius: 999px;
     background: #fff;
     color: #dc2626;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 800;
     line-height: 20px;
     text-align: center;
     border: 2px solid #dc2626;
     box-sizing: border-box;
   }
+
   .warn-badge.warn-soft .warn-count {
     color: #d97706;
     border-color: #d97706;
   }
+
   .warn-tooltip {
     display: none;
     position: absolute;
-    top: 52px;
+    top: 54px;
     right: 0;
-    width: min(380px, calc(100vw - 24px));
-    max-height: 340px;
+    width: min(400px, calc(100vw - 24px));
+    max-height: 360px;
     overflow-y: auto;
     background: #fff;
     border: 1px solid #fecaca;
-    border-radius: 10px;
-    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
-    padding: 8px 0;
+    border-radius: 12px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+    padding: 6px 0;
     z-index: 10000;
   }
+
   .warn-badge.warn-soft .warn-tooltip { border-color: #fde68a; }
+
   .warn-tooltip::before {
     content: "";
     position: absolute;
@@ -361,171 +534,278 @@
     border-top: 1px solid #fecaca;
     transform: rotate(45deg);
   }
+
   .warn-badge.warn-soft .warn-tooltip::before {
     border-left-color: #fde68a;
     border-top-color: #fde68a;
   }
+
   .warn-badge:hover .warn-tooltip,
   .warn-badge:focus-within .warn-tooltip,
   .warn-badge.is-open .warn-tooltip {
     display: block;
   }
+
   .warn-item {
-    font-size: 12px;
+    font-size: 12.5px;
     color: #b91c1c;
-    padding: 8px 14px;
-    line-height: 1.4;
+    padding: 9px 14px;
+    line-height: 1.45;
     border-bottom: 1px solid #fef2f2;
     font-weight: 500;
+    text-align: left;
   }
+
   .warn-item.warn-soft-item {
     color: #b45309;
     border-bottom-color: #fef3c7;
   }
+
   .warn-item:last-child { border-bottom: none; }
   .warn-item::before { content: "⚠️ "; }
   .warn-item.warn-soft-item::before { content: "⚡ "; }
-  #output { max-width: var(--content-max); min-width: 0; width: 100%; }
+
+  #output {
+    max-width: var(--content-max);
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* ——— Schedule table ——— */
   .sched-table {
-    font-size: 11px;
+    font-size: 12px;
     table-layout: fixed;
     width: 100%;
   }
+
   .sched-table th,
   .sched-table td {
-    padding: 2px 4px;
+    padding: 5px 6px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .sched-table th { font-size: 10px; padding: 3px 4px; }
+
+  .sched-table th {
+    font-size: 11px;
+    padding: 7px 6px;
+    font-weight: 700;
+  }
+
   .sched-table th:nth-child(1),
-  .sched-table td:nth-child(1) { width: 88px; }
+  .sched-table td:nth-child(1) { width: 96px; }
+
   .sched-table th:nth-child(2),
-  .sched-table td:nth-child(2) { width: 40px; }
+  .sched-table td:nth-child(2) { width: 42px; }
+
   .sched-table th:nth-child(n+3),
   .sched-table td:nth-child(n+3) {
-    width: 96px;
+    width: 100px;
   }
+
   .sched-table td.off {
-    background: #eef0f3;
+    background: #f0f1f4;
     color: #6b7280;
   }
+
   .sched-table td.urlop {
     background: #e0f2fe;
     color: #0369a1;
     font-weight: 700;
   }
+
   .sched-table td.closed {
     background: #4b5563;
     color: #e5e7eb;
     font-style: italic;
     font-weight: 600;
   }
+
   .sched-table td.holiday {
     background: #fef3c7;
     color: #b45309;
     font-weight: 700;
   }
+
   .sched-table td.work {
     font-family: var(--mono);
     font-weight: 600;
+    font-size: 11.5px;
     color: #1f2937;
+    letter-spacing: -0.02em;
   }
+
   .sched-table td.weekend {
     background: #f3f4f6;
     color: #4b5563;
   }
+
   .sched-table td.weekend.work {
     background: #eef0f3;
     color: #1f2937;
   }
+
   .sched-table tr:has(td.weekend) td:first-child,
   .sched-table tr:has(td.weekend) td:nth-child(2) {
     background: #e5e7eb;
     color: #374151;
     font-weight: 700;
   }
+
   .sched-table td.editable-cell {
     cursor: pointer;
     position: relative;
     min-width: 96px;
   }
+
   .sched-table td.editable-cell:hover {
     outline: 2px solid var(--play-purple-mid);
     outline-offset: -2px;
     z-index: 1;
   }
+
   .sched-table td.editable-cell.locked-cell {
     box-shadow: inset 0 0 0 2px #b45309;
   }
+
   .sched-table td.editable-cell.locked-cell .cell-label::after {
     content: " 🔒";
     font-size: 9px;
   }
+
+  #empTable th,
+  #empTable td {
+    padding: 7px 8px;
+    vertical-align: middle;
+  }
+
   #empTable tr.row-all td {
     background: var(--play-purple-light);
     font-weight: 700;
   }
+
   #empTable tr.row-all td:first-child {
     color: var(--play-purple-dark);
-    font-size: 11px;
+    font-size: 11.5px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
+
   #empTable tr.row-all input[type=number] {
     background: #fff;
   }
+
+  #empTable td:first-child input[type=text] {
+    text-align: left;
+    font-weight: 600;
+    min-width: 88px;
+  }
+
+  #empTable tbody tr:not(.row-all):hover td {
+    background: #faf8fc;
+  }
+
+  #prefTable tbody tr:not(.row-closed):not(.row-holiday):hover td {
+    background: #faf8fc;
+  }
+
+  #prefTable select:focus {
+    border-color: var(--play-purple-mid);
+    box-shadow: var(--focus-ring);
+  }
+
+  /* Zebra for schedule day rows for easier scanning */
+  .sched-table tbody tr:nth-child(even):not(.summary) td.work {
+    background: #fafafa;
+  }
+  .sched-table tbody tr:nth-child(even):not(.summary) td.weekend.work {
+    background: #ebecef;
+  }
+
   .lock-bar {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
   }
+
   .btn-lock, .btn-unlock {
-    font-weight: 700; font-size: 12px; border-radius: 8px; padding: 7px 12px; cursor: pointer;
+    font-weight: 700;
+    font-size: 12.5px;
+    border-radius: var(--radius-sm);
+    padding: 9px 13px;
+    cursor: pointer;
   }
-  .btn-lock { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+
+  .btn-lock {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+  }
+
   .btn-lock:hover { background: #ffedd5; }
-  .btn-unlock { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+
+  .btn-unlock {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+
   .btn-unlock:hover { background: #e5e7eb; }
+
   .sched-table td.editable-cell .cell-edit {
     display: none;
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    font-size: 10px;
-    padding: 0 2px;
+    font-size: 11px;
+    padding: 0 3px;
     border: 2px solid var(--play-purple);
     border-radius: 0;
     background: #fff;
     z-index: 2;
   }
+
   .sched-table td.editable-cell.editing .cell-label { display: none; }
   .sched-table td.editable-cell.editing .cell-edit { display: block; }
+
   .sched-table tr.summary td {
     font-weight: 800;
     background: var(--play-purple-light);
-    padding: 4px;
+    padding: 7px 6px;
+    font-size: 12px;
   }
+
   .sched-table tr.summary td.ok { color: var(--good); }
   .sched-table tr.summary td.bad { color: var(--bad); }
-  .prefcell select { font-size: 11px; padding: 2px 3px; }
-  .small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+
+  .prefcell select {
+    font-size: 12px;
+    padding: 5px 6px;
+  }
+
+  .small {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* ——— Top bar ——— */
   .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     max-width: var(--content-max);
-    margin: 0 auto 10px;
+    margin: 0 auto 14px;
     gap: 14px;
     flex-wrap: wrap;
-    background: linear-gradient(135deg, #5c108c 0%, #7b1fa2 55%, #4a0d72 100%);
-    padding: 11px 16px;
+    background: linear-gradient(135deg, #220040 0%, #48227d 45%, #6c43bf 100%);
+    padding: 12px 18px;
     border-radius: var(--radius);
-    box-shadow: 0 4px 16px rgba(92, 16, 140, 0.3);
+    box-shadow: 0 6px 20px rgba(34, 0, 64, 0.35);
   }
+
   .top-bar-save {
     display: flex;
     align-items: center;
@@ -534,14 +814,16 @@
     justify-content: flex-end;
     min-width: 0;
   }
+
+  /* ——— Help tips ——— */
   .help-tip {
     position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 14px;
-    height: 14px;
-    margin-left: 3px;
+    width: 16px;
+    height: 16px;
+    margin: 0;
     border-radius: 50%;
     background: var(--play-purple-mid);
     color: #fff;
@@ -549,106 +831,208 @@
     font-weight: 800;
     line-height: 1;
     cursor: help;
-    vertical-align: super;
     flex-shrink: 0;
+    vertical-align: middle;
+    transition: background 0.12s ease, transform 0.12s ease;
   }
-  /* Jednolity dymek — pozycjonowany przez JS (#app-tooltip), zawsze w viewportcie */
-  .has-tip {
-    /* marker; pozycja względna nie jest wymagana */
+
+  .help-tip:hover,
+  .help-tip:focus {
+    background: var(--play-purple-dark);
+    transform: scale(1.08);
   }
+
+  /* Wrapper: label + ? always on one visual line, tip vertically centered */
+  .th-with-tip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    line-height: 1.25;
+  }
+
+  .has-tip { /* marker for JS tooltips on buttons/cells */ }
+
   #app-tooltip {
     display: none;
     position: fixed;
     z-index: 10000;
-    max-width: min(280px, calc(100vw - 16px));
-    padding: 8px 10px;
+    max-width: min(300px, calc(100vw - 16px));
+    padding: 9px 12px;
     background: #1f2937;
     color: #f9fafb;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: 1.45;
     text-align: left;
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.28);
     white-space: normal;
     pointer-events: none;
   }
+
   #app-tooltip.is-visible {
     display: block;
   }
+
   #app-tooltip .tip-arrow {
     position: absolute;
     width: 0;
     height: 0;
     border: 6px solid transparent;
   }
+
   #app-tooltip.tip-above .tip-arrow {
     left: var(--arrow-left, 50%);
     bottom: -12px;
     transform: translateX(-50%);
     border-top-color: #1f2937;
   }
+
   #app-tooltip.tip-below .tip-arrow {
     left: var(--arrow-left, 50%);
     top: -12px;
     transform: translateX(-50%);
     border-bottom-color: #1f2937;
   }
-  #empTable th .th-with-tip,
-  #empTable td .th-with-tip {
+
+  /* Employee table headers: stack label text if needed, tip stays top-right of the block */
+  #empTable th .th-with-tip {
     display: inline-flex;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
-    gap: 2px;
-    flex-wrap: nowrap;
+    gap: 5px;
+    max-width: 100%;
   }
+
+  #empTable th .th-with-tip .tip-label {
+    display: block;
+    line-height: 1.2;
+  }
+
   #empTable th .help-tip {
     background: var(--play-purple);
-    margin-top: -2px;
+    margin: 0;
+    align-self: center;
   }
+
   #empTable tr.row-all td:first-child .th-with-tip {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
   }
+
   #empTable tr.row-all td:first-child .help-tip {
     background: var(--play-purple);
   }
-  #sundaysBox label {
-    margin-right: 10px;
-    font-size: 12px;
+
+  /* Inline labels outside tables (Święta, section titles) */
+  .label-with-tip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    flex-wrap: nowrap;
   }
+
+  .panel h2 .help-tip,
+  .label-with-tip .help-tip {
+    margin: 0;
+  }
+
+  #sundaysBox {
+    padding: 4px 0;
+  }
+
+  #sundaysBox label {
+    margin-right: 12px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+
   #sundaysBox input[type=checkbox] {
     accent-color: var(--play-purple);
   }
+
+  #prefTable th {
+    font-size: 11.5px;
+    padding: 8px 6px;
+  }
+
+  #prefTable td {
+    padding: 5px 6px;
+  }
+
   #prefTable tr.row-holiday td { background: #fffbeb; }
+
   #prefTable tr.row-holiday td:first-child,
   #prefTable tr.row-holiday td:nth-child(2) {
     background: #fef3c7;
     color: #b45309;
     font-weight: 700;
   }
+
   #prefTable tr.row-closed td {
     background: #f9fafb;
     color: #9ca3af;
   }
+
   .holidays-input-wrap {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
+
   .holidays-input-wrap input[type=text] {
     width: 100%;
-    max-width: 320px;
-    font-size: 12px;
-    padding: 5px 8px;
+    max-width: 340px;
+    font-size: 13px;
+    padding: 8px 10px;
   }
+
   @media (hover: hover) {
     .panel:hover {
       border-color: var(--play-purple-soft);
-      box-shadow: 0 2px 8px rgba(92, 16, 140, 0.08);
+      box-shadow: var(--shadow-lg);
+    }
+  }
+
+  /* ——— Readable scrollbars for tables ——— */
+  #view-employee-prefs .panel > div[style*="overflow"],
+  #output .panel > div[style*="overflow"] {
+    border-radius: 8px;
+  }
+
+  /* ——— Slightly larger touch targets on mobile ——— */
+  @media (max-width: 640px) {
+    body {
+      padding: 10px 8px 28px;
+      font-size: 13.5px;
+    }
+    .top-bar {
+      padding: 10px 12px;
+      gap: 10px;
+    }
+    .top-bar-logo { height: 36px; }
+    h1 { font-size: 14px; }
+    .view-switch button {
+      padding: 9px 12px;
+      font-size: 12px;
+    }
+    .panel {
+      padding: 14px;
+    }
+    input[type=text],
+    input[type=number],
+    select {
+      font-size: 14px; /* prevents iOS zoom */
+      padding: 8px 10px;
     }
   }
 </style>
@@ -677,11 +1061,11 @@
       <div class="panel-header">
         <h2>Pracownicy, godziny i wolne</h2>
       </div>
-      <label class="small" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer;">
+      <label class="small" style="display:flex;align-items:center;gap:8px;margin:0 0 12px;cursor:pointer;font-weight:500;color:var(--ink-soft);">
         <input type="checkbox" id="showDaysOffToggle" data-action="toggle-days-off-col">
         Pokaż ręczny wymiar dni wolnych
       </label>
-      <p id="daysOffHint" class="small" style="margin:0 0 6px;display:none;">Zostaw pole wolnych dni puste, aby system wyliczył je automatycznie.</p>
+      <p id="daysOffHint" class="small" style="margin:0 0 10px;display:none;padding:8px 10px;background:var(--play-purple-light);border-radius:8px;color:var(--play-purple-dark);">Zostaw pole wolnych dni puste, aby system wyliczył je automatycznie.</p>
       <table id="empTable">
         <thead>
           <tr>
@@ -689,13 +1073,13 @@
             <th>Godziny / mies.</th>
             <th class="col-days-off" style="display:none;">Wym. dni wolne</th>
             <th>
-              <span class="th-with-tip">Wolne soboty<span class="help-tip" tabindex="0" data-tip="Priorytet 2 wolnych sobót ponad maksymalnie 5 dniami pracy pod rząd">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">Wolne soboty</span><span class="help-tip" tabindex="0" data-tip="Priorytet 2 wolnych sobót ponad maksymalnie 5 dniami pracy pod rząd">?</span></span>
             </th>
             <th>
-              <span class="th-with-tip">Wolne zamiast urlopu<span class="help-tip" tabindex="0" data-tip="Przy zgłoszonym urlopie najpierw rozdawaj wolne; odznacz = trzymaj urlop i rozdawaj wolne osobno.">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">Wolne zamiast urlopu</span><span class="help-tip" tabindex="0" data-tip="Przy zgłoszonym urlopie najpierw rozdawaj wolne; odznacz = trzymaj urlop i rozdawaj wolne osobno.">?</span></span>
             </th>
             <th>
-              <span class="th-with-tip">Uczeń<span class="help-tip" tabindex="0" data-tip="Uczeń nie otrzymuje samodzielnych otwarć i zamknięć; nie jest brany pod uwagę przy kompletowaniu minimalnej obsady dziennej.">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">Uczeń</span><span class="help-tip" tabindex="0" data-tip="Uczeń nie otrzymuje samodzielnych otwarć i zamknięć; nie jest brany pod uwagę przy kompletowaniu minimalnej obsady dziennej.">?</span></span>
             </th>
             <th></th>
           </tr>
@@ -718,8 +1102,8 @@
       </div>
       <div id="sundaysBox" class="small"></div>
       <div id="holidaysBox" class="small holidays-input-wrap" style="margin-top:10px;">
-        <div style="font-weight:600;color:var(--play-purple);display:inline-flex;align-items:center;gap:2px;">
-          Święta<span class="help-tip" tabindex="0" data-tip="Wpisz numery dni po przecinku, np. 1, 11, 25 (salon będzie wtedy zamknięty).">?</span>
+        <div class="label-with-tip" style="font-weight:700;color:var(--play-purple);font-size:12.5px;letter-spacing:0.02em;">
+          <span>Święta</span><span class="help-tip" tabindex="0" data-tip="Wpisz numery dni po przecinku, np. 1, 11, 25 (salon będzie wtedy zamknięty).">?</span>
         </div>
         <input type="text" id="holidaysInput" placeholder="np. 1, 11, 25" data-action="holidays-input" autocomplete="off">
         <div id="holidaysHint" style="color:var(--muted);font-size:11px;"></div>
@@ -1012,7 +1396,7 @@ function renderEmployeeTable() {
   const allRow = `
     <tr class="row-all">
       <td>
-        <span class="th-with-tip">Wszyscy<span class="help-tip" tabindex="0" data-tip="Ustawia godziny, wolne soboty i „wolne zamiast urlopu” (oraz ręczny wymiar dni wolnych, gdy włączony) dla wszystkich naraz.">?</span></span>
+        <span class="th-with-tip"><span class="tip-label">Wszyscy</span><span class="help-tip" tabindex="0" data-tip="Ustawia godziny, wolne soboty i „wolne zamiast urlopu” (oraz ręczny wymiar dni wolnych, gdy włączony) dla wszystkich naraz.">?</span></span>
       </td>
       <td>
         <input type="number" min="0" step="8"
@@ -1200,7 +1584,7 @@ function renderSundaysBox() {
   }
 
   box.innerHTML =
-    '<div style="margin-bottom:4px;font-weight:600;color:var(--play-purple);">Niedziele handlowe</div>' +
+    '<div style="margin-bottom:8px;font-weight:700;color:var(--play-purple);font-size:12.5px;letter-spacing:0.02em;">Niedziele handlowe</div>' +
     sundays.map(d => {
       const ds = dateStr(state.curYear, state.curMonth, d);
       const checked = state.tradingSundays.has(ds) ? 'checked' : '';
@@ -3011,8 +3395,8 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
 
   out.innerHTML = `
     <div class="panel">
-      <h2 style="display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">
-        Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}
+      <h2 class="label-with-tip" style="margin-bottom:12px;font-size:12px;">
+        <span>Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}</span>
         <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
       </h2>
       <div style="overflow-x:auto;">
@@ -3099,18 +3483,18 @@ function xlCell(font, fill, align = 'center') {
   return s;
 }
 const XL = {
-  title: xlCell({ bold: true, sz: 14, color: { rgb: '5C108C' } }, null, 'left'),
-  header: xlCell({ bold: true, sz: 11, color: { rgb: '3D0A5C' } }, 'F5EEF9'),
+  title: xlCell({ bold: true, sz: 14, color: { rgb: '220040' } }, null, 'left'),
+  header: xlCell({ bold: true, sz: 11, color: { rgb: '220040' } }, 'F0ECF9'),
   work: xlCell({ sz: 10 }),
   weekend: xlCell({ sz: 10 }, 'EEF0F3'),
   off: xlCell({ sz: 10, color: { rgb: '6B7280' } }, 'EEF0F3'),
   urlop: xlCell({ bold: true, sz: 10, color: { rgb: '0369A1' } }, 'E0F2FE'),
   closed: xlCell({ italic: true, sz: 10, color: { rgb: 'E5E7EB' } }, '4B5563'),
   holiday: xlCell({ bold: true, sz: 10, color: { rgb: 'B45309' } }, 'FEF3C7'),
-  summary: xlCell({ bold: true, sz: 10, color: { rgb: '3D0A5C' } }, 'F5EEF9'),
-  summaryLabel: xlCell({ bold: true, sz: 10, color: { rgb: '3D0A5C' } }, 'F5EEF9', 'left'),
-  ok: xlCell({ bold: true, sz: 10, color: { rgb: '15803D' } }, 'F5EEF9'),
-  bad: xlCell({ bold: true, sz: 10, color: { rgb: 'C02626' } }, 'F5EEF9'),
+  summary: xlCell({ bold: true, sz: 10, color: { rgb: '220040' } }, 'F0ECF9'),
+  summaryLabel: xlCell({ bold: true, sz: 10, color: { rgb: '220040' } }, 'F0ECF9', 'left'),
+  ok: xlCell({ bold: true, sz: 10, color: { rgb: '1B6F64' } }, 'F0ECF9'),
+  bad: xlCell({ bold: true, sz: 10, color: { rgb: 'E6144B' } }, 'F0ECF9'),
 };
 
 function xlStyleForVal(val, day) {
