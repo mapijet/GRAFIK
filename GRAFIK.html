@@ -780,10 +780,80 @@
   .sched-table tr.summary td.ok { color: var(--good); }
   .sched-table tr.summary td.bad { color: var(--bad); }
 
-  .prefcell select {
-    font-size: 12px;
-    padding: 5px 6px;
+  .sched-panel-header {
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
+
+  .sched-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    display: inline-block;
+  }
+
+  .swatch-work { background: #eef0f3; border: 1px solid var(--line-strong); }
+  .swatch-off { background: #f0f1f4; border: 1px solid var(--line-strong); }
+  .swatch-urlop { background: #e0f2fe; border: 1px solid #93c5e8; }
+  .swatch-holiday { background: #fef3c7; border: 1px solid #f4d38b; }
+  .swatch-closed { background: #4b5563; }
+  .swatch-locked { background: #fff; box-shadow: inset 0 0 0 2px #b45309; }
+
+  .prefcell {
+    min-width: 118px;
+    padding: 4px !important;
+  }
+
+  .prefcell select {
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 8px;
+    width: 100%;
+    min-width: 108px;
+    text-align-last: center;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    color: var(--ink);
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+
+  /* Kolorowanie wg wybranej preferencji — szybkie skanowanie wzrokiem */
+  .prefcell select.pv-empty {
+    color: var(--muted);
+    font-weight: 500;
+    border-color: var(--line);
+  }
+
+  .prefcell select.pv-vacation {
+    background: #e0f2fe;
+    border-color: #93c5e8;
+    color: #0369a1;
+  }
+
+  .prefcell select.pv-S1 { background: #f0ecf9; border-color: #d5c7ec; color: var(--play-purple-dark); }
+  .prefcell select.pv-S2 { background: #e4dcf3; border-color: #c7b3e6; color: var(--play-purple-dark); }
+  .prefcell select.pv-S3 { background: #d3c0ea; border-color: #b596dd; color: var(--play-purple-dark); }
+  .prefcell select.pv-S4 { background: #b596dd; border-color: #9b6fd0; color: #fff; }
+  .prefcell select.pv-S5 { background: var(--play-purple-mid); border-color: var(--play-purple-mid); color: #fff; }
+
+  .prefcell select:hover { border-color: #c4b5d0; }
 
   .small {
     font-size: 12px;
@@ -1061,22 +1131,16 @@
       <div class="panel-header">
         <h2>Pracownicy, godziny i wolne</h2>
       </div>
-      <label class="small" style="display:flex;align-items:center;gap:8px;margin:0 0 12px;cursor:pointer;font-weight:500;color:var(--ink-soft);">
-        <input type="checkbox" id="showDaysOffToggle" data-action="toggle-days-off-col">
-        Pokaż ręczny wymiar dni wolnych
-      </label>
-      <p id="daysOffHint" class="small" style="margin:0 0 10px;display:none;padding:8px 10px;background:var(--play-purple-light);border-radius:8px;color:var(--play-purple-dark);">Zostaw pole wolnych dni puste, aby system wyliczył je automatycznie.</p>
       <table id="empTable">
         <thead>
           <tr>
             <th>Etykieta Pracownika</th>
             <th>Godziny / mies.</th>
-            <th class="col-days-off" style="display:none;">Wym. dni wolne</th>
             <th>
-              <span class="th-with-tip"><span class="tip-label">Wolne soboty</span><span class="help-tip" tabindex="0" data-tip="Priorytet 2 wolnych sobót ponad maksymalnie 5 dniami pracy pod rząd">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">Wolne soboty</span><span class="help-tip" tabindex="0" data-tip="Gdy opcja jest włączona, generator stara się przydzielić przynajmniej dwie wolne soboty w miesiącu kosztem zachowania pięciu dni pracy pod rząd.">?</span></span>
             </th>
             <th>
-              <span class="th-with-tip"><span class="tip-label">Wolne zamiast urlopu</span><span class="help-tip" tabindex="0" data-tip="Przy zgłoszonym urlopie najpierw rozdawaj wolne; odznacz = trzymaj urlop i rozdawaj wolne osobno.">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">Wolne zamiast urlopu</span><span class="help-tip" tabindex="0" data-tip="Gdy opcja jest włączona, generator przydziela pod preferencje pracownika w pierwszej kolejności dzień wolny zamiast urlopu. Przy opcji wyłączonej pod preferencje przydzielany jest tylko urlop.">?</span></span>
             </th>
             <th>
               <span class="th-with-tip"><span class="tip-label">Uczeń</span><span class="help-tip" tabindex="0" data-tip="Uczeń nie otrzymuje samodzielnych otwarć i zamknięć; nie jest brany pod uwagę przy kompletowaniu minimalnej obsady dziennej.">?</span></span>
@@ -1174,8 +1238,14 @@ const TARGET_FREE_SATURDAYS = 2;
 
 const minStaffForDay = day => day.dow === 6 ? MIN_STAFF_SATURDAY : MIN_STAFF;
 
-const DEFAULT_EMPLOYEES = ['M.P.','J.D.','K.P.','A.M.','U.F.','S.S.'].map((name,i)=>({
-  id:'e'+(i+1), name, target:160, daysOff:'', preferFreeSaturdays:true, preferFreeOverUrlop:true, isStudent:false
+const DEFAULT_EMPLOYEE_NAMES = ['M.P.', 'J.D.', 'K.P.', 'A.M.', 'U.F.', 'S.S.'];
+const DEFAULT_EMPLOYEES = DEFAULT_EMPLOYEE_NAMES.map((name, i) => ({
+  id: 'e' + (i + 1),
+  name,
+  target: 160,
+  preferFreeSaturdays: true,
+  preferFreeOverUrlop: true,
+  isStudent: false,
 }));
 
 /**
@@ -1197,6 +1267,19 @@ const state = {
 
 const uid = () => 'e' + Math.random().toString(36).slice(2, 9);
 
+function createEmployee(overrides = {}) {
+  return {
+    id: uid(),
+    name: 'Nowy',
+    target: 160,
+    preferFreeSaturdays: true,
+    preferFreeOverUrlop: true,
+    isStudent: false,
+    ...overrides,
+  };
+}
+
+
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
 const dateStr = (y, m, d) => `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -1214,6 +1297,21 @@ const getPref = (ds, empId) => state.prefs[`${ds}|${empId}`];
 
 const isHardOff = pref => pref && (pref.type === 'off' || pref.type === 'vacation');
 const isWorkingVal = val => val && val !== 'Wolne' && val !== 'Urlop';
+const PREF_VISUAL_CLASSES = ['pv-empty', 'pv-vacation', 'pv-S1', 'pv-S2', 'pv-S3', 'pv-S4', 'pv-S5'];
+function prefVisualClass(prefOrValue) {
+  if (!prefOrValue) return 'pv-empty';
+  if (typeof prefOrValue === 'string') {
+    if (prefOrValue === 'vacation' || prefOrValue === 'off') return 'pv-vacation';
+    return SHIFT_CODES.includes(prefOrValue) ? `pv-${prefOrValue}` : 'pv-empty';
+  }
+  if (prefOrValue.type === 'vacation' || prefOrValue.type === 'off') return 'pv-vacation';
+  if (prefOrValue.type === 'shift' && prefOrValue.code) return `pv-${prefOrValue.code}`;
+  return 'pv-empty';
+}
+function applyPrefVisual(el, value) {
+  el.classList.remove(...PREF_VISUAL_CLASSES);
+  el.classList.add(prefVisualClass(value || null));
+}
 function countWorkedDays(empId, openDays, schedule) {
   return openDays.filter(d => !d.closed && isWorkingVal(schedule[d.ds]?.[empId])).length;
 }
@@ -1238,10 +1336,10 @@ function getShiftPlan(n) {
 function loadEmployees() {
   state.employees = storageGet('employees', null) || DEFAULT_EMPLOYEES.map(e => ({ ...e }));
   for (const e of state.employees) {
-    if (e.daysOff === undefined) e.daysOff = '';
     if (e.preferFreeSaturdays === undefined) e.preferFreeSaturdays = true;
     if (e.preferFreeOverUrlop === undefined) e.preferFreeOverUrlop = true;
     if (e.isStudent === undefined) e.isStudent = false;
+    delete e.daysOff;
   }
   renderEmployeeTable();
 }
@@ -1373,10 +1471,6 @@ function saveAllData() {
   }, 2000);
 }
 
-function isDaysOffColVisible() {
-  return !!document.getElementById('showDaysOffToggle')?.checked;
-}
-
 function consensusValue(getter) {
   if (!state.employees.length) return { value: '', mixed: false };
   const value = getter(state.employees[0]);
@@ -1385,30 +1479,21 @@ function consensusValue(getter) {
 
 function renderEmployeeTable() {
   const tbody = document.querySelector('#empTable tbody');
-  const showOff = isDaysOffColVisible();
 
   const hoursC = consensusValue(e => e.target);
-  const daysOffC = consensusValue(e => e.daysOff === '' || e.daysOff == null ? '' : String(e.daysOff));
   const satC = consensusValue(e => !!e.preferFreeSaturdays);
   const urlopC = consensusValue(e => e.preferFreeOverUrlop !== false);
-  const studentC = consensusValue(e => !!e.isStudent);
 
   const allRow = `
     <tr class="row-all">
       <td>
-        <span class="th-with-tip"><span class="tip-label">Wszyscy</span><span class="help-tip" tabindex="0" data-tip="Ustawia godziny, wolne soboty i „wolne zamiast urlopu” (oraz ręczny wymiar dni wolnych, gdy włączony) dla wszystkich naraz.">?</span></span>
+        <span class="th-with-tip"><span class="tip-label">Wszyscy</span><span class="help-tip" tabindex="0" data-tip="Zmiany w tym wierszu zmieniają opcje u wszystkich pracowników.">?</span></span>
       </td>
       <td>
         <input type="number" min="0" step="8"
           value="${hoursC.mixed ? '' : esc(hoursC.value)}"
           placeholder="${hoursC.mixed ? 'różne' : ''}"
           data-emp="__all__" data-field="target">
-      </td>
-      <td class="col-days-off" style="${showOff ? '' : 'display:none;'}">
-        <input type="number" placeholder="${daysOffC.mixed ? 'różne' : 'auto'}"
-          value="${daysOffC.mixed ? '' : esc(daysOffC.value)}"
-          min="0" step="1"
-          data-emp="__all__" data-field="daysOff">
       </td>
       <td>
         <input type="checkbox" ${!satC.mixed && satC.value ? 'checked' : ''}
@@ -1420,11 +1505,7 @@ function renderEmployeeTable() {
           data-emp="__all__" data-field="preferFreeOverUrlop"
           data-mixed="${urlopC.mixed ? '1' : '0'}">
       </td>
-      <td>
-        <input type="checkbox" ${!studentC.mixed && studentC.value ? 'checked' : ''}
-          data-emp="__all__" data-field="isStudent"
-          data-mixed="${studentC.mixed ? '1' : '0'}">
-      </td>
+      <td></td>
       <td></td>
     </tr>`;
 
@@ -1432,9 +1513,6 @@ function renderEmployeeTable() {
     <tr>
       <td><input type="text" value="${esc(emp.name)}" data-emp="${emp.id}" data-field="name"></td>
       <td><input type="number" value="${emp.target}" min="0" step="8" data-emp="${emp.id}" data-field="target"></td>
-      <td class="col-days-off" style="${showOff ? '' : 'display:none;'}">
-        <input type="number" placeholder="auto" value="${esc(emp.daysOff)}" min="0" step="1" data-emp="${emp.id}" data-field="daysOff">
-      </td>
       <td>
         <input type="checkbox" ${emp.preferFreeSaturdays ? 'checked' : ''}
           data-emp="${emp.id}" data-field="preferFreeSaturdays">
@@ -1458,27 +1536,11 @@ function renderEmployeeTable() {
   });
 }
 
-function toggleDaysOffColumn(show) {
-  document.querySelectorAll('.col-days-off').forEach(el => {
-    el.style.display = show ? '' : 'none';
-  });
-  const hint = document.getElementById('daysOffHint');
-  if (hint) hint.style.display = show ? '' : 'none';
-  if (!show) {
-    // Ukryte = zawsze auto
-    state.employees.forEach(e => { e.daysOff = ''; });
-    saveEmployees();
-    renderEmployeeTable();
-  }
-}
-
 function applyEmpField(emp, field, value) {
   if (field === 'target') {
     const n = Number(value);
     if (!Number.isFinite(n) || n < 0) return;
     emp.target = n;
-  } else if (field === 'daysOff') {
-    emp.daysOff = value === '' ? '' : Number(value);
   } else if (field === 'preferFreeSaturdays') {
     emp.preferFreeSaturdays = !!value;
   } else if (field === 'preferFreeOverUrlop') {
@@ -1511,7 +1573,7 @@ function updateEmp(id, field, value) {
 }
 
 function addEmployee() {
-  state.employees.push({ id: uid(), name: 'Nowy', target: 160, daysOff: '', preferFreeSaturdays: true, preferFreeOverUrlop: true, isStudent: false });
+  state.employees.push(createEmployee());
   saveEmployees(); renderEmployeeTable(); renderPrefTable();
 }
 function removeEmployee(id) {
@@ -1684,7 +1746,7 @@ function renderPrefTable() {
 
   const shiftOptions = (selectedCode) =>
     SHIFT_CODES.map(code =>
-      `<option value="${code}" ${code === selectedCode ? 'selected' : ''}>Pref: ${SHIFTS[code].label}</option>`
+      `<option value="${code}" ${code === selectedCode ? 'selected' : ''}>${SHIFTS[code].label}</option>`
     ).join('');
 
   let rows = '';
@@ -1710,7 +1772,7 @@ function renderPrefTable() {
       // Stare "off" i "vacation" = jedna opcja „Wolne / Urlop”
       const isOffPref = p && (p.type === 'vacation' || p.type === 'off');
       rows += `<td class="prefcell">
-        <select data-action="set-pref" data-date="${ds}" data-emp="${emp.id}">
+        <select class="${prefVisualClass(p)}" data-action="set-pref" data-date="${ds}" data-emp="${emp.id}">
           <option value="" ${!p ? 'selected' : ''}>—</option>
           <option value="vacation" ${isOffPref ? 'selected' : ''}>Wolne / Urlop</option>
           ${shiftOptions(selectedShift)}
@@ -1757,26 +1819,10 @@ function computeQuotas(employees, activeDays, nd) {
   const quota = {};
   const remaining = {};
   const requiredOff = {};
-  // Dni automatycznie wolne w miesiącu (zamknięte niedziele/święta) — liczą się
-  // do ręcznie ustawionego wymiaru dni wolnych, więc trzeba je odjąć od niego.
-  const closedDaysCount = nd - activeDays.length;
 
   for (const e of employees) {
     const hoursQuota = Math.round(e.target / 8);
-    const hasCustomDaysOff =
-      e.daysOff !== '' && e.daysOff != null && !isNaN(e.daysOff);
-
-    // Jeśli użytkownik ręcznie ustawił wymiar dni wolnych, to on decyduje
-    // ile dni w miesiącu pracownik ma pracować — etat godzinowy staje się
-    // wtedy wynikiem, a nie wejściem (ewentualna rozbieżność jest widoczna
-    // jako ostrzeżenie „nie udało się osiągnąć etatu”).
-    let effQuota = hoursQuota;
-    if (hasCustomDaysOff) {
-      const desiredOff = Math.max(0, Number(e.daysOff));
-      const extraOffAmongActiveDays = Math.max(0, desiredOff - closedDaysCount);
-      effQuota = Math.max(0, activeDays.length - extraOffAmongActiveDays);
-    }
-    quota[e.id] = effQuota;
+    quota[e.id] = hoursQuota;
 
     let reqVac = 0;
     let reqOff = 0;
@@ -1790,18 +1836,16 @@ function computeQuotas(employees, activeDays, nd) {
     const minRequiredOffDays = Math.floor(availableDays / 6);
     const maxWorkableSoft = availableDays - minRequiredOffDays;
 
-    // preferFreeOverUrlop: urlop tylko tyle, ile trzeba do etatu; inaczej cały reqVac
     let plannedUrlopFromPref = 0;
     if (e.preferFreeOverUrlop === false) {
       plannedUrlopFromPref = reqVac;
     } else {
-      const neededUrlop = Math.max(0, effQuota - maxWorkableSoft);
+      const neededUrlop = Math.max(0, hoursQuota - maxWorkableSoft);
       plannedUrlopFromPref = Math.min(reqVac, neededUrlop);
     }
 
-    remaining[e.id] = Math.max(0, Math.min(effQuota - plannedUrlopFromPref, availableDays));
-
-    requiredOff[e.id] = hasCustomDaysOff ? Number(e.daysOff) : nd - hoursQuota;
+    remaining[e.id] = Math.max(0, Math.min(hoursQuota - plannedUrlopFromPref, availableDays));
+    requiredOff[e.id] = nd - hoursQuota;
   }
 
   return { quota, remaining, requiredOff };
@@ -3395,10 +3439,20 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
 
   out.innerHTML = `
     <div class="panel">
-      <h2 class="label-with-tip" style="margin-bottom:12px;font-size:12px;">
-        <span>Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}</span>
-        <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
-      </h2>
+      <div class="panel-header sched-panel-header">
+        <h2 class="label-with-tip" style="font-size:12px;">
+          <span>Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}</span>
+          <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
+        </h2>
+        <div class="sched-legend">
+          <span class="legend-item"><span class="legend-swatch swatch-work"></span>Praca</span>
+          <span class="legend-item"><span class="legend-swatch swatch-off"></span>Wolne</span>
+          <span class="legend-item"><span class="legend-swatch swatch-urlop"></span>Urlop</span>
+          <span class="legend-item"><span class="legend-swatch swatch-holiday"></span>Święto</span>
+          <span class="legend-item"><span class="legend-swatch swatch-closed"></span>Zamknięte</span>
+          <span class="legend-item"><span class="legend-swatch swatch-locked"></span>Zablokowane</span>
+        </div>
+      </div>
       <div style="overflow-x:auto;">
         <table class="sched-table">
           <thead>
@@ -3743,10 +3797,6 @@ document.addEventListener('change', ev => {
     updateEmp(el.dataset.emp, el.dataset.field, val);
     return;
   }
-  if (el.dataset.action === 'toggle-days-off-col') {
-    toggleDaysOffColumn(el.checked);
-    return;
-  }
   if (el.dataset.action === 'toggle-sunday') {
     toggleSunday(el.dataset.date, el.checked);
     return;
@@ -3757,6 +3807,7 @@ document.addEventListener('change', ev => {
   }
   if (el.dataset.action === 'set-pref') {
     setPref(el.dataset.date, el.dataset.emp, el.value);
+    applyPrefVisual(el, el.value);
   }
 });
 
