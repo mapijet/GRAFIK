@@ -753,6 +753,145 @@
     background: #faf8fc;
   }
 
+  #empTable th.drag-col,
+  #empTable td.drag-col {
+    width: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    padding: 4px 2px !important;
+    border-right: none;
+    user-select: none;
+  }
+
+  #empTable .drag-handle,
+  #prefTable .col-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: grab;
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: -1px;
+    touch-action: none;
+    user-select: none;
+  }
+
+  #empTable .drag-handle:hover,
+  #prefTable .col-drag-handle:hover {
+    background: var(--play-purple-light);
+    color: var(--play-purple-dark);
+  }
+
+  #empTable .drag-handle:active,
+  #empTable tr.emp-dragging .drag-handle,
+  #prefTable .col-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  #empTable tr.emp-dragging {
+    opacity: 0.55;
+  }
+
+  #empTable tr.emp-drag-over > td {
+    box-shadow: inset 0 2px 0 0 var(--play-purple);
+  }
+
+  #empTable tr.row-all td.drag-col {
+    background: var(--play-purple-light);
+  }
+
+  #prefTable th.pref-col-th {
+    position: relative;
+    min-width: 118px;
+    vertical-align: middle;
+  }
+
+  #prefTable th.pref-col-th .pref-col-head {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    max-width: 100%;
+  }
+
+  #prefTable th.pref-col-th .pref-col-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #prefTable th.pref-col-dragging {
+    opacity: 0.45;
+  }
+
+  #prefTable th.pref-col-drag-over {
+    box-shadow: inset 3px 0 0 0 var(--play-purple);
+  }
+
+  .match-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    background: var(--play-purple-light);
+    border: 1px solid var(--play-purple-soft);
+    border-radius: var(--radius-sm);
+  }
+
+  .match-bar-label {
+    font-size: 12.5px;
+    font-weight: 800;
+    color: var(--play-purple-dark);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  .match-bar select {
+    width: auto;
+    min-width: 110px;
+    max-width: 160px;
+    font-weight: 600;
+  }
+
+  .match-bar .match-sep {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .match-bar .match-history {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+    align-items: center;
+  }
+
+  .match-bar .btn-history {
+    background: #fff;
+    color: var(--play-purple-dark);
+    border: 1px solid var(--play-purple-soft);
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 8px 12px;
+  }
+
+  .match-bar .btn-history:hover:not(:disabled) {
+    background: var(--play-purple-soft);
+  }
+
+  .match-bar .btn-history:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+
   #prefTable tbody tr:not(.row-closed):not(.row-holiday):hover td {
     background: #faf8fc;
   }
@@ -1182,6 +1321,7 @@
       <table id="empTable">
         <thead>
           <tr>
+            <th class="drag-col" aria-label="Kolejność"></th>
             <th>Etykieta Pracownika</th>
             <th>Godziny / mies.</th>
             <th>
@@ -1433,6 +1573,7 @@ function updateLockToggleButton() {
 function lockAllScheduleCells() {
   const ls = state.lastSchedule;
   if (!ls?.schedule || !ls?.openDays) return;
+  pushScheduleHistory();
   for (const day of ls.openDays) {
     if (day.closed) continue;
     for (const e of state.employees) {
@@ -1445,6 +1586,8 @@ function lockAllScheduleCells() {
   updateLockToggleButton();
 }
 function unlockAllScheduleCells() {
+  if (!Object.keys(state.lockedCells || {}).length) return;
+  pushScheduleHistory();
   state.lockedCells = {};
   saveCurrentSchedule();
   if (state.lastSchedule) refreshAfterManualEdit();
@@ -1476,6 +1619,7 @@ function loadCurrentSchedule() {
   if (!data) return false;
   state.lastSchedule = data;
   state.lockedCells = data.lockedCells ? { ...data.lockedCells } : {};
+  clearScheduleHistory();
   if (!data.roleCounts && data.openDays && data.schedule) {
     data.roleCounts = computeRoleCounts(state.employees, data.openDays, data.schedule);
   }
@@ -1534,6 +1678,7 @@ function renderEmployeeTable() {
 
   const allRow = `
     <tr class="row-all">
+      <td class="drag-col"></td>
       <td>
         <span class="th-with-tip"><span class="tip-label">Wszyscy</span><span class="help-tip" tabindex="0" data-tip="Zmiany w tym wierszu zmieniają opcje u wszystkich pracowników.">?</span></span>
       </td>
@@ -1558,7 +1703,10 @@ function renderEmployeeTable() {
     </tr>`;
 
   const empRows = state.employees.map(emp => `
-    <tr>
+    <tr class="emp-row" data-emp-id="${emp.id}">
+      <td class="drag-col">
+        <span class="drag-handle has-tip" data-tip="Przeciągnij, aby zmienić kolejność" draggable="true" data-emp-id="${emp.id}" aria-label="Przeciągnij">⋮⋮</span>
+      </td>
       <td><input type="text" value="${esc(emp.name)}" data-emp="${emp.id}" data-field="name"></td>
       <td><input type="number" value="${emp.target}" min="0" step="8" data-emp="${emp.id}" data-field="target"></td>
       <td>
@@ -1582,6 +1730,7 @@ function renderEmployeeTable() {
   tbody.querySelectorAll('tr.row-all input[type=checkbox][data-mixed="1"]').forEach(cb => {
     cb.indeterminate = true;
   });
+  initEmpTableDragDrop();
 }
 
 function applyEmpField(emp, field, value) {
@@ -1627,6 +1776,246 @@ function addEmployee() {
 function removeEmployee(id) {
   state.employees = state.employees.filter(e => e.id !== id);
   saveEmployees(); renderEmployeeTable(); renderPrefTable();
+}
+
+function reorderEmployee(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  const fromIdx = state.employees.findIndex(e => e.id === fromId);
+  const toIdx = state.employees.findIndex(e => e.id === toId);
+  if (fromIdx < 0 || toIdx < 0) return;
+  const [item] = state.employees.splice(fromIdx, 1);
+  state.employees.splice(toIdx, 0, item);
+  saveEmployees();
+  renderEmployeeTable();
+  renderPrefTable();
+  if (state.lastSchedule) refreshAfterManualEdit();
+}
+
+function initEmpTableDragDrop() {
+  const tbody = document.querySelector('#empTable tbody');
+  if (!tbody || tbody.dataset.dndBound === '1') return;
+  tbody.dataset.dndBound = '1';
+
+  let dragEmpId = null;
+
+  tbody.addEventListener('dragstart', ev => {
+    const handle = ev.target.closest('.drag-handle');
+    if (!handle) { ev.preventDefault(); return; }
+    dragEmpId = handle.dataset.empId || null;
+    if (!dragEmpId) { ev.preventDefault(); return; }
+    const row = handle.closest('tr.emp-row');
+    if (row) row.classList.add('emp-dragging');
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('text/plain', dragEmpId); } catch (_) {}
+  });
+
+  tbody.addEventListener('dragend', () => {
+    tbody.querySelectorAll('tr.emp-dragging, tr.emp-drag-over').forEach(r => {
+      r.classList.remove('emp-dragging', 'emp-drag-over');
+    });
+    dragEmpId = null;
+  });
+
+  tbody.addEventListener('dragover', ev => {
+    const row = ev.target.closest('tr.emp-row');
+    if (!row || !dragEmpId) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    tbody.querySelectorAll('tr.emp-drag-over').forEach(r => {
+      if (r !== row) r.classList.remove('emp-drag-over');
+    });
+    if (row.dataset.empId !== dragEmpId) row.classList.add('emp-drag-over');
+  });
+
+  tbody.addEventListener('dragleave', ev => {
+    const row = ev.target.closest('tr.emp-row');
+    if (!row) return;
+    const rel = ev.relatedTarget;
+    if (rel && row.contains(rel)) return;
+    row.classList.remove('emp-drag-over');
+  });
+
+  tbody.addEventListener('drop', ev => {
+    const row = ev.target.closest('tr.emp-row');
+    if (!row) return;
+    ev.preventDefault();
+    const toId = row.dataset.empId;
+    let fromId = dragEmpId;
+    if (!fromId) {
+      try { fromId = ev.dataTransfer.getData('text/plain'); } catch (_) {}
+    }
+    tbody.querySelectorAll('tr.emp-dragging, tr.emp-drag-over').forEach(r => {
+      r.classList.remove('emp-dragging', 'emp-drag-over');
+    });
+    if (fromId && toId) reorderEmployee(fromId, toId);
+    dragEmpId = null;
+  });
+}
+
+function initPrefTableColDragDrop() {
+  const thead = document.querySelector('#prefTable thead');
+  if (!thead || thead.dataset.colDndBound === '1') return;
+  thead.dataset.colDndBound = '1';
+
+  let dragEmpId = null;
+
+  thead.addEventListener('dragstart', ev => {
+    const handle = ev.target.closest('.col-drag-handle');
+    if (!handle) { ev.preventDefault(); return; }
+    dragEmpId = handle.dataset.empId || null;
+    if (!dragEmpId) { ev.preventDefault(); return; }
+    const th = handle.closest('th.pref-col-th');
+    if (th) th.classList.add('pref-col-dragging');
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('text/plain', dragEmpId); } catch (_) {}
+  });
+
+  thead.addEventListener('dragend', () => {
+    thead.querySelectorAll('th.pref-col-dragging, th.pref-col-drag-over').forEach(th => {
+      th.classList.remove('pref-col-dragging', 'pref-col-drag-over');
+    });
+    dragEmpId = null;
+  });
+
+  thead.addEventListener('dragover', ev => {
+    const th = ev.target.closest('th.pref-col-th');
+    if (!th || !dragEmpId) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    thead.querySelectorAll('th.pref-col-drag-over').forEach(h => {
+      if (h !== th) h.classList.remove('pref-col-drag-over');
+    });
+    if (th.dataset.empId !== dragEmpId) th.classList.add('pref-col-drag-over');
+  });
+
+  thead.addEventListener('dragleave', ev => {
+    const th = ev.target.closest('th.pref-col-th');
+    if (!th) return;
+    const rel = ev.relatedTarget;
+    if (rel && th.contains(rel)) return;
+    th.classList.remove('pref-col-drag-over');
+  });
+
+  thead.addEventListener('drop', ev => {
+    const th = ev.target.closest('th.pref-col-th');
+    if (!th) return;
+    ev.preventDefault();
+    const toId = th.dataset.empId;
+    let fromId = dragEmpId;
+    if (!fromId) {
+      try { fromId = ev.dataTransfer.getData('text/plain'); } catch (_) {}
+    }
+    thead.querySelectorAll('th.pref-col-dragging, th.pref-col-drag-over').forEach(h => {
+      h.classList.remove('pref-col-dragging', 'pref-col-drag-over');
+    });
+    if (fromId && toId) reorderEmployee(fromId, toId);
+    dragEmpId = null;
+  });
+}
+
+/** Historia zmian na zakładce GENERATOR (cofnij / ponów). */
+const scheduleHistory = {
+  undo: [],
+  redo: [],
+  max: 40,
+  applying: false,
+};
+
+function cloneScheduleSnapshot() {
+  const ls = state.lastSchedule;
+  if (!ls?.schedule) return null;
+  // Głęboka kopia schedule + lockedCells
+  const schedule = {};
+  for (const ds of Object.keys(ls.schedule)) {
+    schedule[ds] = { ...ls.schedule[ds] };
+  }
+  return {
+    schedule,
+    lockedCells: { ...state.lockedCells },
+  };
+}
+
+function pushScheduleHistory() {
+  if (scheduleHistory.applying) return;
+  const snap = cloneScheduleSnapshot();
+  if (!snap) return;
+  scheduleHistory.undo.push(snap);
+  if (scheduleHistory.undo.length > scheduleHistory.max) {
+    scheduleHistory.undo.shift();
+  }
+  scheduleHistory.redo = [];
+  updateHistoryButtons();
+}
+
+function applyScheduleSnapshot(snap) {
+  if (!snap || !state.lastSchedule) return;
+  scheduleHistory.applying = true;
+  try {
+    const schedule = {};
+    for (const ds of Object.keys(snap.schedule)) {
+      schedule[ds] = { ...snap.schedule[ds] };
+    }
+    state.lastSchedule.schedule = schedule;
+    state.lockedCells = { ...snap.lockedCells };
+    refreshAfterManualEdit();
+  } finally {
+    scheduleHistory.applying = false;
+  }
+  updateHistoryButtons();
+}
+
+function undoScheduleChange() {
+  if (!scheduleHistory.undo.length || !state.lastSchedule) return;
+  const current = cloneScheduleSnapshot();
+  const prev = scheduleHistory.undo.pop();
+  if (current) scheduleHistory.redo.push(current);
+  applyScheduleSnapshot(prev);
+}
+
+function redoScheduleChange() {
+  if (!scheduleHistory.redo.length || !state.lastSchedule) return;
+  const current = cloneScheduleSnapshot();
+  const next = scheduleHistory.redo.pop();
+  if (current) scheduleHistory.undo.push(current);
+  applyScheduleSnapshot(next);
+}
+
+function clearScheduleHistory() {
+  scheduleHistory.undo = [];
+  scheduleHistory.redo = [];
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons() {
+  const undoBtn = document.getElementById('undoScheduleBtn');
+  const redoBtn = document.getElementById('redoScheduleBtn');
+  if (undoBtn) undoBtn.disabled = scheduleHistory.undo.length === 0;
+  if (redoBtn) redoBtn.disabled = scheduleHistory.redo.length === 0;
+}
+
+/** Dokładne skopiowanie grafiku źródłowego pracownika na docelowego (otwarte dni). */
+function matchScheduleFromTo(targetId, sourceId) {
+  if (!state.lastSchedule?.schedule || !targetId || !sourceId || targetId === sourceId) return false;
+  pushScheduleHistory();
+  const { openDays, schedule } = state.lastSchedule;
+  let changed = 0;
+  for (const day of openDays) {
+    if (day.closed) continue;
+    if (!schedule[day.ds]) continue;
+    const srcVal = schedule[day.ds][sourceId];
+    if (srcVal == null) continue;
+    schedule[day.ds][targetId] = srcVal;
+    // Zablokuj skopiowane komórki, żeby GENERUJ ich nie nadpisał
+    setCellLocked(day.ds, targetId, true);
+    changed++;
+  }
+  if (changed) refreshAfterManualEdit();
+  else {
+    // Nic nie zmieniono — wycofaj pusty wpis historii
+    scheduleHistory.undo.pop();
+    updateHistoryButtons();
+  }
+  return changed > 0;
 }
 
 function initMonthPickers() {
@@ -1789,8 +2178,14 @@ function renderPrefTable() {
 
   thead.innerHTML = `<tr>
     <th>Data</th><th>Dzień</th>
-    ${state.employees.map(e => `<th>${esc(e.name)}</th>`).join('')}
+    ${state.employees.map(e => `<th class="pref-col-th" data-emp-id="${e.id}">
+      <span class="pref-col-head">
+        <span class="col-drag-handle has-tip" data-tip="Przeciągnij kolumnę, aby zmienić kolejność" draggable="true" data-emp-id="${e.id}" aria-label="Przeciągnij kolumnę">⋮⋮</span>
+        <span class="pref-col-name">${esc(e.name)}</span>
+      </span>
+    </th>`).join('')}
   </tr>`;
+  initPrefTableColDragDrop();
 
   const shiftOptions = (selectedCode) =>
     SHIFT_CODES.map(code =>
@@ -3374,6 +3769,9 @@ function generateSchedule() {
     roleCounts, freeSaturdays,
   };
 
+  // Nowa generacja = nowy punkt startowy historii
+  clearScheduleHistory();
+
   renderWarnings(hardWarnings, softWarnings);
   renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop, roleCounts, freeSaturdays);
   saveCurrentSchedule();
@@ -3485,6 +3883,10 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
     return `<td class="${n >= TARGET_FREE_SATURDAYS ? 'ok' : 'bad'}">${n} / min: ${TARGET_FREE_SATURDAYS}</td>`;
   }).join('');
 
+  const empOptsHtml = employees.map(e =>
+    `<option value="${e.id}">${esc(e.name)}</option>`
+  ).join('');
+
   out.innerHTML = `
     <div class="panel">
       <div class="panel-header sched-panel-header">
@@ -3499,6 +3901,20 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
           <span class="legend-item"><span class="legend-swatch swatch-holiday"></span>Święto</span>
           <span class="legend-item"><span class="legend-swatch swatch-closed"></span>Zamknięte</span>
           <span class="legend-item"><span class="legend-swatch swatch-locked"></span>Zablokowane</span>
+        </div>
+      </div>
+      <div class="match-bar">
+        <span class="match-bar-label label-with-tip">
+          Dopasuj grafik:
+          <span class="help-tip" tabindex="0" data-tip="Dokładnie kopiuje cały miesiąc grafiku pierwszego wybranego pracownika na drugiego. Skopiowane komórki są automatycznie blokowane (🔒).">?</span>
+        </span>
+        <select id="matchSourceSel" aria-label="Pracownik źródłowy">${empOptsHtml}</select>
+        <span class="match-sep">do:</span>
+        <select id="matchTargetSel" aria-label="Pracownik docelowy">${empOptsHtml}</select>
+        <button type="button" class="btn-secondary has-tip" data-action="match-schedule" data-tip="Skopiuj grafik 1:1 i zablokuj komórki">Zastosuj</button>
+        <div class="match-history">
+          <button type="button" id="undoScheduleBtn" class="btn-history has-tip" data-action="undo-schedule" data-tip="Cofnij ostatnią zmianę w grafiku" disabled>↶ Cofnij</button>
+          <button type="button" id="redoScheduleBtn" class="btn-history has-tip" data-action="redo-schedule" data-tip="Ponów cofniętą zmianę" disabled>↷ Ponów</button>
         </div>
       </div>
       <div style="overflow-x:auto;">
@@ -3528,6 +3944,7 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
         <button class="btn-secondary has-tip" data-action="export-jpg" data-tip="Zapisz jako plik .jpg">🖼 JPG</button>
       </div>
     </div>`;
+  updateHistoryButtons();
 }
 
 function refreshAfterManualEdit() {
@@ -3561,6 +3978,10 @@ function refreshAfterManualEdit() {
 
 function onCellEdit(ds, empId, value) {
   if (!state.lastSchedule?.schedule?.[ds]) return;
+  const prev = state.lastSchedule.schedule[ds][empId];
+  const wasLocked = isCellLocked(ds, empId);
+  if (prev === value && wasLocked) return;
+  pushScheduleHistory();
   state.lastSchedule.schedule[ds][empId] = value;
   // Ręczna edycja → automatyczna blokada (nie nadpisze GENERUJ)
   setCellLocked(ds, empId, true);
@@ -3569,6 +3990,7 @@ function onCellEdit(ds, empId, value) {
 
 function toggleCellLock(ds, empId) {
   if (!state.lastSchedule?.schedule?.[ds]) return;
+  pushScheduleHistory();
   setCellLocked(ds, empId, !isCellLocked(ds, empId));
   refreshAfterManualEdit();
 }
@@ -3834,6 +4256,22 @@ document.addEventListener('click', ev => {
     case 'export-jpg':     exportJpg(); break;
     case 'toggle-lock-all': toggleLockAllScheduleCells(); break;
     case 'set-view':       setAppView(el.dataset.view); break;
+    case 'match-schedule': {
+      const targetId = document.getElementById('matchTargetSel')?.value;
+      const sourceId = document.getElementById('matchSourceSel')?.value;
+      if (!targetId || !sourceId) break;
+      if (targetId === sourceId) {
+        alert('Wybierz dwóch różnych pracowników.');
+        break;
+      }
+      const targetName = state.employees.find(e => e.id === targetId)?.name || 'docelowy';
+      const sourceName = state.employees.find(e => e.id === sourceId)?.name || 'źródłowy';
+      if (!confirm(`Skopiować cały grafik „${sourceName}” na „${targetName}”?\nKomórki zostaną zablokowane.`)) break;
+      matchScheduleFromTo(targetId, sourceId);
+      break;
+    }
+    case 'undo-schedule': undoScheduleChange(); break;
+    case 'redo-schedule': redoScheduleChange(); break;
   }
 });
 
