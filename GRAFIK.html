@@ -1,0 +1,3089 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generator grafiku — Salon PLAY</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#5c108c">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+<script src="vendor/xlsx.min.js"></script>
+<script src="vendor/html2canvas.min.js"></script>
+<style>
+  :root {
+    --play-purple: #5c108c;
+    --play-purple-dark: #3d0a5c;
+    --play-purple-mid: #7b1fa2;
+    --play-purple-light: #f5eef9;
+    --play-purple-soft: #ede0f5;
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --paper: #f4f5f7;
+    --panel: #ffffff;
+    --line: #e8e8ec;
+    --line-strong: #d4d4da;
+    --good: #15803d;
+    --bad: #c02626;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'JetBrains Mono', Consolas, monospace;
+    --radius: 12px;
+    --content-max: 1200px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    padding: 12px 10px 32px;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 0;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .top-bar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .top-bar-logo {
+    height: 40px;
+    width: auto;
+    display: block;
+    flex-shrink: 0;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.2));
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 11.5px;
+    margin: 0;
+    line-height: 1.35;
+  }
+  .view-switch {
+    display: flex;
+    max-width: var(--content-max);
+    margin: 0 auto 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 4px;
+    gap: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    width: fit-content;
+  }
+  .view-switch button {
+    background: transparent;
+    color: var(--play-purple-dark);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    padding: 9px 20px;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none;
+  }
+  .view-switch button:hover {
+    background: var(--play-purple-light);
+  }
+  .view-switch button.active {
+    background: var(--play-purple);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(92, 16, 140, 0.28);
+  }
+  .view-panel {
+    max-width: var(--content-max);
+    width: 100%;
+    margin: 0 auto;
+  }
+  .view-panel[hidden] {
+    display: none !important;
+  }
+  #view-options .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    max-width: none;
+  }
+  #view-generator {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #view-generator .generate-bar,
+  #view-generator #warnings,
+  #view-generator #output {
+    max-width: none;
+    width: 100%;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    max-width: var(--content-max);
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(92,16,140,0.04);
+  }
+  .panel h2 {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--play-purple);
+    margin: 0;
+    font-weight: 800;
+  }
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--play-purple-light);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 3px 5px;
+    text-align: center;
+  }
+  th {
+    background: var(--play-purple-light);
+    color: var(--play-purple-dark);
+    font-weight: 700;
+    font-size: 10.5px;
+  }
+  input[type=text], input[type=number], select {
+    font-family: var(--sans);
+    font-size: 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    padding: 4px 6px;
+    width: 100%;
+    background: #fff;
+    color: var(--ink);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus {
+    border-color: var(--play-purple-mid);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(92, 16, 140, 0.12);
+  }
+  input[type=number] { width: 62px; }
+  .row-actions { display: flex; gap: 6px; margin-top: 8px; }
+  button {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 12px;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 13px;
+    cursor: pointer;
+    transition: background .12s, transform .08s, box-shadow .12s;
+  }
+  button:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--play-purple);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(92, 16, 140, 0.28);
+  }
+  .btn-primary:hover { background: var(--play-purple-dark); }
+  .btn-secondary {
+    background: var(--play-purple-light);
+    color: var(--play-purple-dark);
+    border: 1px solid var(--play-purple-soft);
+  }
+  .btn-secondary:hover { background: var(--play-purple-soft); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--bad);
+    text-decoration: underline;
+    padding: 2px 4px;
+    font-size: 11px;
+    box-shadow: none;
+  }
+  .month-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .month-row select { width: auto; min-width: 110px; }
+  .generate-bar {
+    max-width: var(--content-max);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    background: linear-gradient(135deg, #5c108c 0%, #7b1fa2 55%, #4a0d72 100%);
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(92, 16, 140, 0.3);
+  }
+  .generate-bar-lock {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .generate-bar-lock-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    white-space: nowrap;
+  }
+  .generate-bar > button[data-action="generate"],
+  .top-bar .btn-on-purple {
+    background: #fff;
+    color: var(--play-purple);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 9px 22px;
+    white-space: nowrap;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border: none;
+  }
+  .generate-bar > button[data-action="generate"]:hover,
+  .top-bar .btn-on-purple:hover { background: #f8f5fb; }
+  .generate-bar .btn-lock-toggle {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+  .generate-bar .btn-lock-toggle.is-locked {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+  .generate-bar .btn-lock-toggle.is-locked:hover {
+    background: #e5e7eb;
+  }
+  body.exporting-jpg .sched-table td.editable-cell.locked-cell {
+    box-shadow: none;
+  }
+  body.exporting-jpg .sched-table td.editable-cell.locked-cell .cell-label::after {
+    content: none;
+  }
+  #warnings {
+    max-width: var(--content-max);
+    margin: 0;
+    display: flex;
+    justify-content: flex-end;
+    position: relative;
+    z-index: 50;
+  }
+  #warnings:empty { display: none; }
+  .warn-badge {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 3px 12px rgba(185, 28, 28, 0.4);
+    user-select: none;
+    border: 2px solid #fff;
+    margin-left: 8px;
+  }
+  .warn-badge.warn-soft {
+    background: #d97706;
+    box-shadow: 0 3px 12px rgba(180, 83, 9, 0.35);
+  }
+  .warn-badge .warn-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #fff;
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 20px;
+    text-align: center;
+    border: 2px solid #dc2626;
+    box-sizing: border-box;
+  }
+  .warn-badge.warn-soft .warn-count {
+    color: #d97706;
+    border-color: #d97706;
+  }
+  .warn-tooltip {
+    display: none;
+    position: absolute;
+    top: 52px;
+    right: 0;
+    width: min(380px, calc(100vw - 24px));
+    max-height: 340px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+    padding: 8px 0;
+    z-index: 10000;
+  }
+  .warn-badge.warn-soft .warn-tooltip { border-color: #fde68a; }
+  .warn-tooltip::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    right: 16px;
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-left: 1px solid #fecaca;
+    border-top: 1px solid #fecaca;
+    transform: rotate(45deg);
+  }
+  .warn-badge.warn-soft .warn-tooltip::before {
+    border-left-color: #fde68a;
+    border-top-color: #fde68a;
+  }
+  .warn-badge:hover .warn-tooltip,
+  .warn-badge:focus-within .warn-tooltip,
+  .warn-badge.is-open .warn-tooltip {
+    display: block;
+  }
+  .warn-item {
+    font-size: 12px;
+    color: #b91c1c;
+    padding: 8px 14px;
+    line-height: 1.4;
+    border-bottom: 1px solid #fef2f2;
+    font-weight: 500;
+  }
+  .warn-item.warn-soft-item {
+    color: #b45309;
+    border-bottom-color: #fef3c7;
+  }
+  .warn-item:last-child { border-bottom: none; }
+  .warn-item::before { content: "⚠️ "; }
+  .warn-item.warn-soft-item::before { content: "⚡ "; }
+  #output { max-width: var(--content-max); min-width: 0; width: 100%; }
+  .sched-table {
+    font-size: 11px;
+    table-layout: fixed;
+    width: 100%;
+  }
+  .sched-table th,
+  .sched-table td {
+    padding: 2px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sched-table th { font-size: 10px; padding: 3px 4px; }
+  .sched-table th:nth-child(1),
+  .sched-table td:nth-child(1) { width: 88px; }
+  .sched-table th:nth-child(2),
+  .sched-table td:nth-child(2) { width: 40px; }
+  .sched-table th:nth-child(n+3),
+  .sched-table td:nth-child(n+3) {
+    width: 96px;
+  }
+  .sched-table td.off {
+    background: #eef0f3;
+    color: #6b7280;
+  }
+  .sched-table td.urlop {
+    background: #e0f2fe;
+    color: #0369a1;
+    font-weight: 700;
+  }
+  .sched-table td.closed {
+    background: #4b5563;
+    color: #e5e7eb;
+    font-style: italic;
+    font-weight: 600;
+  }
+  .sched-table td.holiday {
+    background: #fef3c7;
+    color: #b45309;
+    font-weight: 700;
+  }
+  .sched-table td.work {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: #1f2937;
+  }
+  .sched-table td.weekend {
+    background: #f3f4f6;
+    color: #4b5563;
+  }
+  .sched-table td.weekend.work {
+    background: #eef0f3;
+    color: #1f2937;
+  }
+  .sched-table tr:has(td.weekend) td:first-child,
+  .sched-table tr:has(td.weekend) td:nth-child(2) {
+    background: #e5e7eb;
+    color: #374151;
+    font-weight: 700;
+  }
+  .sched-table td.editable-cell {
+    cursor: pointer;
+    position: relative;
+    min-width: 96px;
+  }
+  .sched-table td.editable-cell:hover {
+    outline: 2px solid var(--play-purple-mid);
+    outline-offset: -2px;
+    z-index: 1;
+  }
+  .sched-table td.editable-cell.locked-cell {
+    box-shadow: inset 0 0 0 2px #b45309;
+  }
+  .sched-table td.editable-cell.locked-cell .cell-label::after {
+    content: " 🔒";
+    font-size: 9px;
+  }
+  #empTable tr.row-all td {
+    background: var(--play-purple-light);
+    font-weight: 700;
+  }
+  #empTable tr.row-all td:first-child {
+    color: var(--play-purple-dark);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  #empTable tr.row-all input[type=number] {
+    background: #fff;
+  }
+  .lock-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .btn-lock, .btn-unlock {
+    font-weight: 700; font-size: 12px; border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  }
+  .btn-lock { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+  .btn-lock:hover { background: #ffedd5; }
+  .btn-unlock { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+  .btn-unlock:hover { background: #e5e7eb; }
+  .sched-table td.editable-cell .cell-edit {
+    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    font-size: 10px;
+    padding: 0 2px;
+    border: 2px solid var(--play-purple);
+    border-radius: 0;
+    background: #fff;
+    z-index: 2;
+  }
+  .sched-table td.editable-cell.editing .cell-label { display: none; }
+  .sched-table td.editable-cell.editing .cell-edit { display: block; }
+  .sched-table tr.summary td {
+    font-weight: 800;
+    background: var(--play-purple-light);
+    padding: 4px;
+  }
+  .sched-table tr.summary td.ok { color: var(--good); }
+  .sched-table tr.summary td.bad { color: var(--bad); }
+  .prefcell select { font-size: 11px; padding: 2px 3px; }
+  .small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: var(--content-max);
+    margin: 0 auto 10px;
+    gap: 14px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, #5c108c 0%, #7b1fa2 55%, #4a0d72 100%);
+    padding: 11px 16px;
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(92, 16, 140, 0.3);
+  }
+  .top-bar-save {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+  .help-tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 3px;
+    border-radius: 50%;
+    background: var(--play-purple-mid);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: help;
+    vertical-align: super;
+    flex-shrink: 0;
+  }
+  .help-tip::after {
+    content: attr(data-tip);
+    display: none;
+    position: absolute;
+    z-index: 1000;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: min(280px, 70vw);
+    padding: 8px 10px;
+    background: #1f2937;
+    color: #f9fafb;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    text-align: left;
+    text-transform: none;
+    letter-spacing: normal;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    white-space: normal;
+    pointer-events: none;
+  }
+  .help-tip::before {
+    content: "";
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1f2937;
+    z-index: 1001;
+  }
+  .help-tip:hover::after,
+  .help-tip:hover::before,
+  .help-tip:focus-visible::after,
+  .help-tip:focus-visible::before {
+    display: block;
+  }
+  #empTable th .th-with-tip,
+  #empTable td .th-with-tip {
+    display: inline-flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+  }
+  #empTable th .help-tip {
+    background: var(--play-purple);
+    margin-top: -2px;
+  }
+  #empTable tr.row-all td:first-child .th-with-tip {
+    display: inline-flex;
+    align-items: center;
+  }
+  #empTable tr.row-all td:first-child .help-tip {
+    background: var(--play-purple);
+  }
+  #sundaysBox label {
+    margin-right: 10px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  #sundaysBox input[type=checkbox] {
+    accent-color: var(--play-purple);
+  }
+  #prefTable tr.row-holiday td { background: #fffbeb; }
+  #prefTable tr.row-holiday td:first-child,
+  #prefTable tr.row-holiday td:nth-child(2) {
+    background: #fef3c7;
+    color: #b45309;
+    font-weight: 700;
+  }
+  #prefTable tr.row-closed td {
+    background: #f9fafb;
+    color: #9ca3af;
+  }
+  .holidays-input-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .holidays-input-wrap input[type=text] {
+    width: 100%;
+    max-width: 320px;
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+  @media (hover: hover) {
+    .panel:hover {
+      border-color: var(--play-purple-soft);
+      box-shadow: 0 2px 8px rgba(92, 16, 140, 0.08);
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="top-bar-brand">
+    <img class="top-bar-logo" src="data:image/png;base64,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" alt="PLAY" width="85" height="48">
+    <h1>GENERATOR GRAFIKU — SALON PLAY</h1>
+  </div>
+  <div class="top-bar-save">
+    <button id="saveBtn" class="btn-on-purple" data-action="save-all" title="Wszystkie dane (w tym grafik) zapisują się w pamięci przeglądarki.">💾 ZAPISZ ZMIANY</button>
+  </div>
+</div>
+
+<div class="view-switch" role="tablist" aria-label="Widok">
+  <button type="button" id="btnViewOptions" class="active" data-action="set-view" data-view="options" role="tab" aria-selected="true" title="Dodaj/usuń pracowników oraz zmień zasady przydzielania im godzin pracy i urlopów; zmień miesiąc, ustaw niedziele handlowe i święta.">⚙️ OPCJE</button>
+  <button type="button" id="btnViewEmployeePrefs" data-action="set-view" data-view="employee-prefs" role="tab" aria-selected="false" title="Ustaw urlopy i preferowane zmiany w kalendarzu na wybrany miesiąc">👥 PREFERENCJE PRACOWNIKÓW</button>
+  <button type="button" id="btnViewGenerator" data-action="set-view" data-view="generator" role="tab" aria-selected="false" title="Wygeneruj grafik">📅 GENERATOR</button>
+</div>
+
+<div id="view-options" class="view-panel">
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Pracownicy, godziny i wolne</h2>
+      </div>
+      <label class="small" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer;">
+        <input type="checkbox" id="showDaysOffToggle" data-action="toggle-days-off-col">
+        Pokaż ręczny wymiar dni wolnych
+      </label>
+      <p id="daysOffHint" class="small" style="margin:0 0 6px;display:none;">Zostaw pole wolnych dni puste, aby system wyliczył je automatycznie.</p>
+      <table id="empTable">
+        <thead>
+          <tr>
+            <th>Etykieta Pracownika</th>
+            <th>Godziny / mies.</th>
+            <th class="col-days-off" style="display:none;">Wym. dni wolne</th>
+            <th>
+              <span class="th-with-tip">Wolne soboty<span class="help-tip" tabindex="0" data-tip="Priorytet 2 wolnych sobót ponad maksymalnie 5 dniami pracy pod rząd">?</span></span>
+            </th>
+            <th>
+              <span class="th-with-tip">Wolne zamiast urlopu<span class="help-tip" tabindex="0" data-tip="Przy zgłoszonym urlopie najpierw rozdawaj wolne; odznacz = trzymaj urlop i rozdawaj wolne osobno.">?</span></span>
+            </th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="row-actions">
+        <button class="btn-secondary" data-action="add-employee">+ Dodaj pracownika</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Miesiąc, niedziele i święta</h2>
+      </div>
+      <div class="month-row">
+        <select id="monthSel"></select>
+        <select id="yearSel"></select>
+        <button class="btn-secondary" data-action="month-change">Wczytaj miesiąc</button>
+      </div>
+      <div id="sundaysBox" class="small"></div>
+      <div id="holidaysBox" class="small holidays-input-wrap" style="margin-top:10px;">
+        <div style="font-weight:600;color:var(--play-purple);">Święta (numery dni po przecinku)</div>
+        <input type="text" id="holidaysInput" placeholder="np. 1, 11, 25" data-action="holidays-input" autocomplete="off">
+        <div id="holidaysHint" style="color:var(--muted);font-size:11px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="view-employee-prefs" class="view-panel" hidden>
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Preferencje pracowników</h2>
+      <button class="btn-ghost" data-action="clear-prefs">Wyczyść preferencje</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="prefTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="view-generator" class="view-panel" hidden>
+  <div class="generate-bar">
+    <button data-action="generate">📅 GENERUJ GRAFIK</button>
+    <div class="generate-bar-lock">
+      <span class="generate-bar-lock-label">Przy kolejnej generacji:</span>
+      <button type="button" id="lockToggleBtn" class="btn-lock btn-lock-toggle" data-action="toggle-lock-all" title="Zablokuj / odblokuj wszystkie komórki grafiku">🔒 Zablokuj wszystkie</button>
+    </div>
+  </div>
+
+  <div id="warnings"></div>
+  <div id="output"></div>
+</div>
+
+<script>
+'use strict';
+
+const SHIFTS = {
+  S1: { label: '8:30–16:30', start: 8.5, end: 16.5, role: 'open' },
+  S2: { label: '10:00–18:00', start: 10, end: 18, role: 'mid' },
+  S3: { label: '11:00–19:00', start: 11, end: 19, role: 'mid' },
+  S4: { label: '12:00–20:00', start: 12, end: 20, role: 'mid' },
+  S5: { label: '13:00–21:00', start: 13, end: 21, role: 'close' },
+};
+
+const SHIFT_CODES = Object.keys(SHIFTS);
+const SHIFT_ORDER = ['S1', 'S2', 'S3', 'S4', 'S5'];
+const shiftIndex = code => { const i = SHIFT_ORDER.indexOf(code); return i === -1 ? 2 : i; };
+const shiftDist = (a, b) => (!a || !b) ? 99 : Math.abs(shiftIndex(a) - shiftIndex(b));
+/** Po S5 następny dzień nie wcześniej niż S3; inaczej max ±1 w SHIFT_ORDER. */
+function shiftAllowedAfter(prev, next) {
+  if (!prev || !next) return true;
+  return prev === 'S5' ? shiftIndex(next) >= shiftIndex('S3') : shiftDist(prev, next) <= 1;
+}
+const calendarDayDiff = (a, b) => Math.round((new Date(b+'T12:00:00') - new Date(a+'T12:00:00')) / 86400000);
+const DAY_NAMES = ['nd', 'pon', 'wt', 'śr', 'czw', 'pt', 'sob'];
+const MONTH_NAMES = [
+  'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec',
+  'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'
+];
+
+const MIN_STAFF = 3;
+const MIN_STAFF_SATURDAY = 4;
+const MAX_CONSECUTIVE_DAYS = 5;
+const HOURS_PER_DAY = 8;
+const TARGET_FREE_SATURDAYS = 2;
+
+const minStaffForDay = day => day.dow === 6 ? MIN_STAFF_SATURDAY : MIN_STAFF;
+
+const DEFAULT_EMPLOYEES = ['M.P.','J.D.','K.P.','A.M.','U.F.','S.S.'].map((name,i)=>({
+  id:'e'+(i+1), name, target:160, daysOff:'', preferFreeSaturdays:true, preferFreeOverUrlop:true
+}));
+
+const state = {
+  employees: [],
+  curYear: null,
+  curMonth: null,
+  tradingSundays: new Set(),
+  holidays: new Set(),
+  prefs: {},
+  lastSchedule: null,
+  lockedCells: {},
+};
+
+const uid = () => 'e' + Math.random().toString(36).slice(2, 9);
+
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+const dateStr = (y, m, d) => `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+function storageGet(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  catch { return fallback; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+}
+const monthSettingsKey = () => `settings:${state.curYear}-${state.curMonth}`;
+const scheduleKey = () => `schedule:${state.curYear}-${state.curMonth}`;
+const getPref = (ds, empId) => state.prefs[`${ds}|${empId}`];
+
+const isHardOff = pref => pref && (pref.type === 'off' || pref.type === 'vacation');
+const isWorkingVal = val => val && val !== 'Wolne' && val !== 'Urlop';
+function countWorkedDays(empId, openDays, schedule) {
+  return openDays.filter(d => !d.closed && isWorkingVal(schedule[d.ds]?.[empId])).length;
+}
+const countUrlopDays = (empId, openDays, schedule) =>
+  openDays.filter(d => schedule[d.ds]?.[empId] === 'Urlop').length;
+const etatDays = (empId, openDays, schedule) =>
+  countWorkedDays(empId, openDays, schedule) + countUrlopDays(empId, openDays, schedule);
+const totalHours = (emp, openDays, schedule, actualUrlop) =>
+  (countWorkedDays(emp.id, openDays, schedule) + (actualUrlop[emp.id] || 0)) * HOURS_PER_DAY;
+
+function getShiftPlan(n) {
+  if (n <= 0) return [];
+  const plans = {
+    1:['S1'], 2:['S1','S5'], 3:['S1','S3','S5'], 4:['S1','S3','S4','S5'],
+    5:['S1','S2','S3','S4','S5'], 6:['S1','S2','S3','S3','S4','S5'],
+    7:['S1','S2','S2','S3','S3','S4','S5'], 8:['S1','S2','S2','S3','S3','S4','S4','S5'],
+  };
+  if (plans[n]) return plans[n];
+  return ['S1','S2','S2','S3','S3','S4','S4','S5','S5'].slice(0, Math.min(n, 9));
+}
+
+function loadEmployees() {
+  state.employees = storageGet('employees', null) || DEFAULT_EMPLOYEES.map(e => ({ ...e }));
+  for (const e of state.employees) {
+    if (e.daysOff === undefined) e.daysOff = '';
+    if (e.preferFreeSaturdays === undefined) e.preferFreeSaturdays = true;
+    if (e.preferFreeOverUrlop === undefined) e.preferFreeOverUrlop = true;
+  }
+  renderEmployeeTable();
+}
+const saveEmployees = () => storageSet('employees', state.employees);
+
+const saveMonthSettings = () => storageSet(monthSettingsKey(), {
+  tradingSundays: [...state.tradingSundays],
+  holidays: [...state.holidays],
+  prefs: state.prefs,
+});
+function loadMonthSettings() {
+  const data = storageGet(monthSettingsKey(), { tradingSundays: [], holidays: [], prefs: {} });
+  state.tradingSundays = new Set(data.tradingSundays || []);
+  state.holidays = new Set(data.holidays || []);
+  state.prefs = data.prefs || {};
+}
+
+const isDayClosed = (ds, dow) => state.holidays.has(ds) || (dow === 0 && !state.tradingSundays.has(ds));
+
+const lockKey = (ds, empId) => `${ds}|${empId}`;
+const isCellLocked = (ds, empId) => !!state.lockedCells[lockKey(ds, empId)];
+function setCellLocked(ds, empId, locked) {
+  const k = lockKey(ds, empId);
+  if (locked) state.lockedCells[k] = true; else delete state.lockedCells[k];
+}
+const hasAnyLockedCells = () => Object.keys(state.lockedCells || {}).length > 0;
+
+function updateLockToggleButton() {
+  const btn = document.getElementById('lockToggleBtn');
+  if (!btn) return;
+  const locked = hasAnyLockedCells();
+  if (locked) {
+    btn.textContent = '🔓 Odblokuj wszystkie';
+    btn.title = 'Odblokuj wszystkie komórki grafiku';
+    btn.classList.add('is-locked');
+  } else {
+    btn.textContent = '🔒 Zablokuj wszystkie';
+    btn.title = 'Zablokuj wszystkie komórki bieżącego grafiku — GENERUJ ich nie zmieni';
+    btn.classList.remove('is-locked');
+  }
+}
+
+function lockAllScheduleCells() {
+  const ls = state.lastSchedule;
+  if (!ls?.schedule || !ls?.openDays) return;
+  for (const day of ls.openDays) {
+    if (day.closed) continue;
+    for (const e of state.employees) {
+      const val = ls.schedule[day.ds]?.[e.id];
+      if (val != null) setCellLocked(day.ds, e.id, true);
+    }
+  }
+  saveCurrentSchedule();
+  refreshAfterManualEdit();
+  updateLockToggleButton();
+}
+function unlockAllScheduleCells() {
+  state.lockedCells = {};
+  saveCurrentSchedule();
+  if (state.lastSchedule) refreshAfterManualEdit();
+  updateLockToggleButton();
+}
+const toggleLockAllScheduleCells = () => hasAnyLockedCells() ? unlockAllScheduleCells() : lockAllScheduleCells();
+function applyLockedCellsToSchedule(schedule, openDays, employees) {
+  for (const day of openDays) {
+    if (day.closed) continue;
+    if (!schedule[day.ds]) schedule[day.ds] = {};
+    for (const e of employees) {
+      const k = lockKey(day.ds, e.id);
+      if (!state.lockedCells[k]) continue;
+      // Przywróć wartość z poprzedniego grafiku, jeśli dostępna
+      const prev = state.lastSchedule?.schedule?.[day.ds]?.[e.id];
+      if (prev != null) schedule[day.ds][e.id] = prev;
+    }
+  }
+}
+
+function saveCurrentSchedule() {
+  if (!state.lastSchedule || !state.curYear || !state.curMonth) return;
+  state.lastSchedule.lockedCells = { ...state.lockedCells };
+  storageSet(scheduleKey(), state.lastSchedule);
+}
+
+function loadCurrentSchedule() {
+  const data = storageGet(scheduleKey(), null);
+  if (!data) return false;
+  state.lastSchedule = data;
+  state.lockedCells = data.lockedCells ? { ...data.lockedCells } : {};
+  if (!data.roleCounts && data.openDays && data.schedule) {
+    data.roleCounts = computeRoleCounts(state.employees, data.openDays, data.schedule);
+  }
+  if (!data.freeSaturdays && data.openDays && data.schedule) {
+    data.freeSaturdays = computeFreeSaturdays(state.employees, data.openDays, data.schedule);
+  }
+  renderWarnings(data.warnings || [], data.softWarnings || []);
+  renderOutput(
+    data.openDays,
+    data.schedule,
+    data.requiredOff,
+    data.actualWolne,
+    data.actualUrlop,
+    data.roleCounts,
+    data.freeSaturdays
+  );
+  updateLockToggleButton();
+  return true;
+}
+
+const saveLastMonthYear = () => storageSet('ui:lastMonthYear', { year: state.curYear, month: state.curMonth });
+
+function saveAllData() {
+  // Upewnij się, że stan miesiąca/roku = to co na liście
+  state.curMonth = Number(document.getElementById('monthSel').value);
+  state.curYear = Number(document.getElementById('yearSel').value);
+  saveLastMonthYear();
+  saveEmployees();
+  saveMonthSettings();
+  saveCurrentSchedule();
+
+  const btn = document.getElementById('saveBtn');
+  const original = btn.innerText;
+  btn.innerText = '✔️ ZAPISANO!';
+  btn.style.background = '#ecfdf5';
+  btn.style.color = 'var(--good)';
+  setTimeout(() => {
+    btn.innerText = original;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 2000);
+}
+
+function isDaysOffColVisible() {
+  return !!document.getElementById('showDaysOffToggle')?.checked;
+}
+
+function consensusValue(getter) {
+  if (!state.employees.length) return { value: '', mixed: false };
+  const value = getter(state.employees[0]);
+  return { value, mixed: state.employees.some(e => getter(e) !== value) };
+}
+
+function renderEmployeeTable() {
+  const tbody = document.querySelector('#empTable tbody');
+  const showOff = isDaysOffColVisible();
+
+  const hoursC = consensusValue(e => e.target);
+  const daysOffC = consensusValue(e => e.daysOff === '' || e.daysOff == null ? '' : String(e.daysOff));
+  const satC = consensusValue(e => !!e.preferFreeSaturdays);
+  const urlopC = consensusValue(e => e.preferFreeOverUrlop !== false);
+
+  const allRow = `
+    <tr class="row-all">
+      <td>
+        <span class="th-with-tip">Wszyscy<span class="help-tip" tabindex="0" data-tip="Ustawia godziny, wolne soboty i „wolne zamiast urlopu” (oraz ręczny wymiar dni wolnych, gdy włączony) dla wszystkich naraz.">?</span></span>
+      </td>
+      <td>
+        <input type="number" min="0" step="8"
+          value="${hoursC.mixed ? '' : esc(hoursC.value)}"
+          placeholder="${hoursC.mixed ? 'różne' : ''}"
+          data-emp="__all__" data-field="target"
+          title="Ustaw godziny etatu wszystkim">
+      </td>
+      <td class="col-days-off" style="${showOff ? '' : 'display:none;'}">
+        <input type="number" placeholder="${daysOffC.mixed ? 'różne' : 'auto'}"
+          value="${daysOffC.mixed ? '' : esc(daysOffC.value)}"
+          min="0" step="1"
+          data-emp="__all__" data-field="daysOff"
+          title="Ustaw wymiar dni wolnych wszystkim (puste = auto)">
+      </td>
+      <td>
+        <input type="checkbox" ${!satC.mixed && satC.value ? 'checked' : ''}
+          data-emp="__all__" data-field="preferFreeSaturdays"
+          data-mixed="${satC.mixed ? '1' : '0'}"
+          title="Ustaw priorytet wolnych sobót wszystkim">
+      </td>
+      <td>
+        <input type="checkbox" ${!urlopC.mixed && urlopC.value ? 'checked' : ''}
+          data-emp="__all__" data-field="preferFreeOverUrlop"
+          data-mixed="${urlopC.mixed ? '1' : '0'}"
+          title="Ustaw „wolne zamiast urlopu” wszystkim">
+      </td>
+      <td></td>
+    </tr>`;
+
+  const empRows = state.employees.map(emp => `
+    <tr>
+      <td><input type="text" value="${esc(emp.name)}" data-emp="${emp.id}" data-field="name"></td>
+      <td><input type="number" value="${emp.target}" min="0" step="8" data-emp="${emp.id}" data-field="target"></td>
+      <td class="col-days-off" style="${showOff ? '' : 'display:none;'}">
+        <input type="number" placeholder="auto" value="${esc(emp.daysOff)}" min="0" step="1" data-emp="${emp.id}" data-field="daysOff">
+      </td>
+      <td>
+        <input type="checkbox" ${emp.preferFreeSaturdays ? 'checked' : ''}
+          data-emp="${emp.id}" data-field="preferFreeSaturdays"
+          title="Priorytet wolnych sobót (przed limitem dni z rzędu)">
+      </td>
+      <td>
+        <input type="checkbox" ${emp.preferFreeOverUrlop !== false ? 'checked' : ''}
+          data-emp="${emp.id}" data-field="preferFreeOverUrlop"
+          title="Przy zgłoszonym urlopie najpierw rozdawaj wolne. Odznacz = urlop zostaje, wolne osobno.">
+      </td>
+      <td><button class="btn-ghost" data-action="remove-employee" data-emp="${emp.id}">usuń</button></td>
+    </tr>`).join('');
+
+  tbody.innerHTML = allRow + empRows;
+
+  // Indeterminate dla checkboxów gdy wartości się różnią
+  tbody.querySelectorAll('tr.row-all input[type=checkbox][data-mixed="1"]').forEach(cb => {
+    cb.indeterminate = true;
+  });
+}
+
+function toggleDaysOffColumn(show) {
+  document.querySelectorAll('.col-days-off').forEach(el => {
+    el.style.display = show ? '' : 'none';
+  });
+  const hint = document.getElementById('daysOffHint');
+  if (hint) hint.style.display = show ? '' : 'none';
+  if (!show) {
+    // Ukryte = zawsze auto
+    state.employees.forEach(e => { e.daysOff = ''; });
+    saveEmployees();
+    renderEmployeeTable();
+  }
+}
+
+function applyEmpField(emp, field, value) {
+  if (field === 'target') {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return;
+    emp.target = n;
+  } else if (field === 'daysOff') {
+    emp.daysOff = value === '' ? '' : Number(value);
+  } else if (field === 'preferFreeSaturdays') {
+    emp.preferFreeSaturdays = !!value;
+  } else if (field === 'preferFreeOverUrlop') {
+    emp.preferFreeOverUrlop = !!value;
+  } else if (field === 'name') {
+    emp.name = value;
+  }
+}
+
+function updateEmp(id, field, value) {
+  if (id === '__all__') {
+    if (field === 'name') return;
+    state.employees.forEach(e => applyEmpField(e, field, value));
+    saveEmployees();
+    renderEmployeeTable();
+    renderPrefTable();
+    return;
+  }
+
+  const emp = state.employees.find(e => e.id === id);
+  if (!emp) return;
+
+  applyEmpField(emp, field, value);
+  saveEmployees();
+  // Nie przebudowuj tabeli przy edycji pojedynczej osoby (focus w polach number).
+  // Wiersz WSZYSCY odświeży consensus przy kolejnym pełnym renderze.
+  if (field === 'name') renderPrefTable();
+}
+
+function addEmployee() {
+  state.employees.push({ id: uid(), name: 'Nowy', target: 160, daysOff: '', preferFreeSaturdays: true, preferFreeOverUrlop: true });
+  saveEmployees(); renderEmployeeTable(); renderPrefTable();
+}
+function removeEmployee(id) {
+  state.employees = state.employees.filter(e => e.id !== id);
+  saveEmployees(); renderEmployeeTable(); renderPrefTable();
+}
+
+function initMonthPickers() {
+  const now = new Date();
+  const monthSel = document.getElementById('monthSel');
+  const yearSel = document.getElementById('yearSel');
+
+  MONTH_NAMES.forEach((name, i) => monthSel.add(new Option(name, i + 1)));
+
+  const thisYear = now.getFullYear();
+  for (let y = thisYear - 1; y <= thisYear + 2; y++) {
+    yearSel.add(new Option(y, y));
+  }
+
+  // Przywróć ostatnio wybrany miesiąc/rok (zapis przy „Zapisz” i przy zmianie miesiąca)
+  const saved = storageGet('ui:lastMonthYear', null);
+  if (saved && saved.year && saved.month) {
+    state.curYear = Number(saved.year);
+    state.curMonth = Number(saved.month);
+    // Upewnij się, że rok jest na liście
+    if (![...yearSel.options].some(o => Number(o.value) === state.curYear)) {
+      yearSel.add(new Option(state.curYear, state.curYear));
+    }
+  } else {
+    state.curMonth = now.getMonth() + 1;
+    state.curYear = thisYear;
+  }
+  monthSel.value = state.curMonth;
+  yearSel.value = state.curYear;
+}
+
+function onMonthChange() {
+  state.curMonth = Number(document.getElementById('monthSel').value);
+  state.curYear = Number(document.getElementById('yearSel').value);
+  saveLastMonthYear();
+
+  loadMonthSettings();
+  renderSundaysBox();
+  renderHolidaysBox();
+  renderPrefTable();
+
+  if (!loadCurrentSchedule()) {
+    document.getElementById('output').innerHTML = '';
+    document.getElementById('warnings').innerHTML = '';
+    state.lastSchedule = null;
+    state.lockedCells = {};
+    updateLockToggleButton();
+  }
+}
+
+function renderSundaysBox() {
+  const box = document.getElementById('sundaysBox');
+  const nd = daysInMonth(state.curYear, state.curMonth);
+  const sundays = [];
+
+  for (let d = 1; d <= nd; d++) {
+    if (new Date(state.curYear, state.curMonth - 1, d).getDay() === 0) {
+      sundays.push(d);
+    }
+  }
+
+  if (sundays.length === 0) {
+    box.innerHTML = 'Brak niedziel w tym miesiącu.';
+    return;
+  }
+
+  box.innerHTML =
+    '<div style="margin-bottom:4px;font-weight:600;color:var(--play-purple);">Niedziele handlowe</div>' +
+    sundays.map(d => {
+      const ds = dateStr(state.curYear, state.curMonth, d);
+      const checked = state.tradingSundays.has(ds) ? 'checked' : '';
+      return `<label style="margin-right:12px;">
+        <input type="checkbox" ${checked} data-action="toggle-sunday" data-date="${ds}">
+        ${d} ${MONTH_NAMES[state.curMonth - 1]}
+      </label>`;
+    }).join(' ');
+}
+
+function toggleSunday(ds, checked) {
+  if (checked) state.tradingSundays.add(ds); else state.tradingSundays.delete(ds);
+  saveMonthSettings();
+  renderPrefTable();
+}
+
+function holidaysToInputValue() {
+  if (!state.curYear || !state.curMonth) return '';
+  const days = [];
+  for (const ds of state.holidays) {
+    // ds = YYYY-MM-DD
+    if (ds.startsWith(`${state.curYear}-${String(state.curMonth).padStart(2, '0')}-`)) {
+      days.push(Number(ds.slice(-2)));
+    }
+  }
+  return days.sort((a, b) => a - b).join(', ');
+}
+
+function renderHolidaysBox() {
+  const input = document.getElementById('holidaysInput');
+  const hint = document.getElementById('holidaysHint');
+  if (!input || !hint) return;
+
+  if (!state.curYear || !state.curMonth) {
+    input.value = '';
+    hint.textContent = '';
+    return;
+  }
+
+  // Nie nadpisuj wartości, gdy użytkownik właśnie pisze (focus)
+  if (document.activeElement !== input) {
+    input.value = holidaysToInputValue();
+  }
+
+  const nd = daysInMonth(state.curYear, state.curMonth);
+  const count = [...state.holidays].filter(ds =>
+    ds.startsWith(`${state.curYear}-${String(state.curMonth).padStart(2, '0')}-`)
+  ).length;
+  hint.textContent = count
+    ? `Ustawiono ${count} ${count === 1 ? 'święto' : count < 5 ? 'święta' : 'świąt'} w tym miesiącu (max ${nd} dni).`
+    : `Wpisz numery dni, np. 1, 11, 25 (salon będzie wtedy zamknięty).`;
+}
+
+function applyHolidaysFromInput(raw) {
+  if (!state.curYear || !state.curMonth) return;
+
+  const nd = daysInMonth(state.curYear, state.curMonth);
+  const prefix = `${state.curYear}-${String(state.curMonth).padStart(2, '0')}-`;
+
+  // Usuń święta tylko z bieżącego miesiąca
+  for (const ds of [...state.holidays]) {
+    if (ds.startsWith(prefix)) state.holidays.delete(ds);
+  }
+
+  const parts = String(raw || '')
+    .split(/[,;\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 1 || n > nd) continue;
+    state.holidays.add(dateStr(state.curYear, state.curMonth, n));
+  }
+
+  saveMonthSettings();
+  renderHolidaysBox();
+  renderPrefTable();
+}
+
+function renderPrefTable() {
+  const thead = document.querySelector('#prefTable thead');
+  const tbody = document.querySelector('#prefTable tbody');
+
+  if (!state.curYear || !state.curMonth) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  const nd = daysInMonth(state.curYear, state.curMonth);
+
+  thead.innerHTML = `<tr>
+    <th>Data</th><th>Dzień</th>
+    ${state.employees.map(e => `<th>${esc(e.name)}</th>`).join('')}
+  </tr>`;
+
+  const shiftOptions = (selectedCode) =>
+    SHIFT_CODES.map(code =>
+      `<option value="${code}" ${code === selectedCode ? 'selected' : ''}>Pref: ${SHIFTS[code].label}</option>`
+    ).join('');
+
+  let rows = '';
+  for (let d = 1; d <= nd; d++) {
+    const dow = new Date(state.curYear, state.curMonth - 1, d).getDay();
+    const ds = dateStr(state.curYear, state.curMonth, d);
+    const isHoliday = state.holidays.has(ds);
+    const closed = isDayClosed(ds, dow);
+    const rowCls = isHoliday ? 'row-holiday' : (closed ? 'row-closed' : '');
+
+    rows += `<tr class="${rowCls}"><td>${d}</td><td>${DAY_NAMES[dow]}</td>`;
+
+    for (const emp of state.employees) {
+      if (closed) {
+        const label = isHoliday ? 'święto' : 'zamknięte';
+        rows += `<td class="prefcell"><span class="small">${label}</span></td>`;
+        continue;
+      }
+
+      const p = getPref(ds, emp.id);
+      const selectedShift = p && p.type === 'shift' ? p.code : null;
+
+      // Stare "off" i "vacation" = jedna opcja „Wolne / Urlop”
+      const isOffPref = p && (p.type === 'vacation' || p.type === 'off');
+      rows += `<td class="prefcell">
+        <select data-action="set-pref" data-date="${ds}" data-emp="${emp.id}">
+          <option value="" ${!p ? 'selected' : ''}>—</option>
+          <option value="vacation" ${isOffPref ? 'selected' : ''}>Wolne / Urlop</option>
+          ${shiftOptions(selectedShift)}
+        </select>
+      </td>`;
+    }
+    rows += '</tr>';
+  }
+  tbody.innerHTML = rows;
+}
+
+// Uwaga: nowe preferencje mają tylko typy 'vacation' i 'shift' — 'off' jest
+// utrzymywane wyłącznie dla kompatybilności ze starymi danymi w localStorage
+// zapisanymi przed ujednoliceniem „Wolne / Urlop” w jedną opcję.
+function setPref(ds, empId, value) {
+  const key = `${ds}|${empId}`;
+  if (!value) delete state.prefs[key];
+  else if (value === 'vacation' || value === 'off') state.prefs[key] = { type: 'vacation' };
+  else state.prefs[key] = { type: 'shift', code: value };
+  saveMonthSettings();
+}
+
+function clearPreferences() {
+  const label = `${MONTH_NAMES[state.curMonth - 1]} ${state.curYear}`;
+  if (!confirm(`Czy na pewno chcesz usunąć wszystkie preferencje dla miesiąca: ${label}?`)) return;
+  state.prefs = {};
+  saveMonthSettings();
+  renderPrefTable();
+}
+
+function buildOpenDays(year, month) {
+  const nd = daysInMonth(year, month);
+  const days = [];
+  for (let d = 1; d <= nd; d++) {
+    const dow = new Date(year, month - 1, d).getDay();
+    const ds = dateStr(year, month, d);
+    const holiday = state.holidays.has(ds);
+    days.push({ d, ds, dow, closed: isDayClosed(ds, dow), holiday });
+  }
+  return days;
+}
+
+function computeQuotas(employees, activeDays, nd) {
+  const quota = {};
+  const remaining = {};
+  const requiredOff = {};
+  // Dni automatycznie wolne w miesiącu (zamknięte niedziele/święta) — liczą się
+  // do ręcznie ustawionego wymiaru dni wolnych, więc trzeba je odjąć od niego.
+  const closedDaysCount = nd - activeDays.length;
+
+  for (const e of employees) {
+    const hoursQuota = Math.round(e.target / 8);
+    const hasCustomDaysOff =
+      e.daysOff !== '' && e.daysOff != null && !isNaN(e.daysOff);
+
+    // Jeśli użytkownik ręcznie ustawił wymiar dni wolnych, to on decyduje
+    // ile dni w miesiącu pracownik ma pracować — etat godzinowy staje się
+    // wtedy wynikiem, a nie wejściem (ewentualna rozbieżność jest widoczna
+    // jako ostrzeżenie „nie udało się osiągnąć etatu”).
+    let effQuota = hoursQuota;
+    if (hasCustomDaysOff) {
+      const desiredOff = Math.max(0, Number(e.daysOff));
+      const extraOffAmongActiveDays = Math.max(0, desiredOff - closedDaysCount);
+      effQuota = Math.max(0, activeDays.length - extraOffAmongActiveDays);
+    }
+    quota[e.id] = effQuota;
+
+    let reqVac = 0;
+    let reqOff = 0;
+    for (const day of activeDays) {
+      const p = getPref(day.ds, e.id);
+      if (p?.type === 'vacation') reqVac++;
+      else if (p?.type === 'off') reqOff++;
+    }
+
+    const availableDays = activeDays.length - reqOff - reqVac;
+    const minRequiredOffDays = Math.floor(availableDays / 6);
+    const maxWorkableSoft = availableDays - minRequiredOffDays;
+
+    // preferFreeOverUrlop: urlop tylko tyle, ile trzeba do etatu; inaczej cały reqVac
+    let plannedUrlopFromPref = 0;
+    if (e.preferFreeOverUrlop === false) {
+      plannedUrlopFromPref = reqVac;
+    } else {
+      const neededUrlop = Math.max(0, effQuota - maxWorkableSoft);
+      plannedUrlopFromPref = Math.min(reqVac, neededUrlop);
+    }
+
+    remaining[e.id] = Math.max(0, Math.min(effQuota - plannedUrlopFromPref, availableDays));
+
+    requiredOff[e.id] = hasCustomDaysOff ? Number(e.daysOff) : nd - hoursQuota;
+  }
+
+  return { quota, remaining, requiredOff };
+}
+
+function canFillHoursWithoutThisSaturday(empId, index, activeDays, remaining) {
+  let futureNonSat = 0;
+  for (let i = index + 1; i < activeDays.length; i++) {
+    const day = activeDays[i];
+    if (day.dow === 6) continue;
+    if (isHardOff(getPref(day.ds, empId))) continue;
+    futureNonSat++;
+  }
+  // Wymagamy zapasu: remaining musi być ściśle mniejsze od przyszłych slotów poza sobotami
+  return remaining[empId] < futureNonSat;
+}
+
+function assignDayShifts(day, index, activeDays, employees, remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt) {
+  const scheduleDay = {};
+  const totalRemainingShifts = employees.reduce((sum, e) => sum + Math.max(0, remaining[e.id]), 0);
+  const remainingDays = activeDays.length - index;
+  const targetMin = minStaffForDay(day);
+  const isSaturday = day.dow === 6;
+
+  let need = Math.ceil(totalRemainingShifts / remainingDays);
+  need = Math.max(targetMin, Math.min(need, employees.length));
+
+  const hardOffIds = new Set(
+    employees.filter(e => isHardOff(getPref(day.ds, e.id))).map(e => e.id)
+  );
+
+  // Sobota: osoby z priorytetem wolnych sobót, które jeszcze nie mają 2 i mogą domknąć etat bez tej soboty → chronione
+  const protectedSatOff = new Set();
+  if (isSaturday) {
+    for (const e of employees) {
+      if (hardOffIds.has(e.id)) continue;
+      if (!e.preferFreeSaturdays) continue;
+      if ((satOffCnt[e.id] || 0) >= TARGET_FREE_SATURDAYS) continue;
+      if (remaining[e.id] <= 0) {
+        protectedSatOff.add(e.id);
+        continue;
+      }
+      if (canFillHoursWithoutThisSaturday(e.id, index, activeDays, remaining)) {
+        protectedSatOff.add(e.id);
+      }
+    }
+  }
+
+  const blockedIds = new Set([...hardOffIds, ...protectedSatOff]);
+  const availableCount = employees.length - blockedIds.size;
+  const softMin = Math.min(targetMin, Math.max(availableCount, employees.length - hardOffIds.size));
+  // softMin nie spada poniżej osób dostępnych bez hard-off (chronione soboty mogą być „odblokowane” w awarii)
+
+  const urgencies = {};
+  for (const e of employees) {
+    let availableFuture = 0;
+    for (let i = index; i < activeDays.length; i++) {
+      if (!isHardOff(getPref(activeDays[i].ds, e.id))) availableFuture++;
+    }
+    urgencies[e.id] =
+      remaining[e.id] <= 0
+        ? 0
+        : availableFuture > 0
+          ? remaining[e.id] / availableFuture + Math.random() * 0.01
+          : 999;
+  }
+
+  const sortByUrgency = (a, b) => {
+    // Preferencja konkretnej zmiany — najwyższy priorytet
+    const prefA = getPref(day.ds, a.id)?.type === 'shift' ? 1 : 0;
+    const prefB = getPref(day.ds, b.id)?.type === 'shift' ? 1 : 0;
+    if (prefA !== prefB) return prefB - prefA;
+
+    if (isSaturday && satOffCnt) {
+      const workPriority = e => {
+        if (!e.preferFreeSaturdays) return -100;
+        return -(satOffCnt[e.id] || 0);
+      };
+      if (workPriority(a) !== workPriority(b)) return workPriority(a) - workPriority(b);
+    }
+    if (Math.abs(urgencies[b.id] - urgencies[a.id]) > 0.05) {
+      return urgencies[b.id] - urgencies[a.id];
+    }
+    const imbalance = id => Math.abs((openCnt[id] || 0) - (closeCnt[id] || 0));
+    if (imbalance(a.id) !== imbalance(b.id)) return imbalance(a.id) - imbalance(b.id);
+    if (consec[b.id] !== consec[a.id]) return consec[a.id] - consec[b.id];
+    if (remaining[b.id] !== remaining[a.id]) return remaining[b.id] - remaining[a.id];
+    return Math.random() - 0.5;
+  };
+
+  const underQuota = employees.filter(
+    e =>
+      !blockedIds.has(e.id) &&
+      consec[e.id] < MAX_CONSECUTIVE_DAYS &&
+      remaining[e.id] > 0
+  );
+  underQuota.sort(sortByUrgency);
+
+  // Docelowa obsada dnia: tylu, ilu naprawdę jest jeszcze "pod etatem" (underQuota),
+  // a gdy takich osób zabraknie — przynajmniej softMin (minimalna bezpieczna obsada,
+  // resztę dobierze pullToMin() spośród osób ponad etatem / chronionych sobót).
+  const actualNeed = Math.min(
+    need,
+    underQuota.length > 0 ? underQuota.length : softMin,
+    employees.length - hardOffIds.size
+  );
+
+  let working = underQuota.slice(0, Math.min(actualNeed, underQuota.length));
+
+  // Wymuś osoby z preferencją zmiany (wypchnij kogoś bez preferencji jeśli trzeba)
+  {
+    const alreadyIn = new Set(working.map(e => e.id));
+    for (const e of underQuota) {
+      if (alreadyIn.has(e.id)) continue;
+      if (getPref(day.ds, e.id)?.type !== 'shift') continue;
+      if (working.length >= employees.length - hardOffIds.size) break;
+      if (working.length >= actualNeed) {
+        const vIdx = working.findIndex(w => getPref(day.ds, w.id)?.type !== 'shift');
+        if (vIdx === -1) break;
+        alreadyIn.delete(working[vIdx].id);
+        working.splice(vIdx, 1);
+      }
+      working.push(e);
+      alreadyIn.add(e.id);
+    }
+  }
+
+  // Dociągnięcie obsady — najpierw bez chronionych sobót, etat nadrzędny
+  const pullToMin = (minNeeded, allowProtected, allowOverConsec) => {
+    if (working.length >= minNeeded) return;
+    const alreadyIn = new Set(working.map(e => e.id));
+    const pool = employees
+      .filter(e => {
+        if (alreadyIn.has(e.id) || hardOffIds.has(e.id)) return false;
+        if (!allowProtected && protectedSatOff.has(e.id)) return false;
+        if (!allowOverConsec && consec[e.id] >= MAX_CONSECUTIVE_DAYS) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        // Chronionych sobót używaj na końcu
+        const pa = protectedSatOff.has(a.id) ? 1 : 0;
+        const pb = protectedSatOff.has(b.id) ? 1 : 0;
+        if (pa !== pb) return pa - pb;
+        const ra = remaining[a.id] > 0 ? 0 : 1;
+        const rb = remaining[b.id] > 0 ? 0 : 1;
+        if (ra !== rb) return ra - rb;
+        return consec[a.id] - consec[b.id] || Math.random() - 0.5;
+      });
+    while (working.length < minNeeded && pool.length) {
+      const e = pool.shift();
+      working.push(e);
+      alreadyIn.add(e.id);
+    }
+  };
+
+  const staffFloor = Math.min(targetMin, employees.length - hardOffIds.size);
+  pullToMin(staffFloor, false, false);
+  pullToMin(staffFloor, false, true);
+  // Tylko gdy inaczej nie da rady obsady — rusz chronione soboty (etat/obsada > wolna sobota)
+  pullToMin(Math.min(MIN_STAFF, staffFloor), true, true);
+
+  const workingIds = new Set(working.map(e => e.id));
+  const plan = getShiftPlan(working.length);
+  let remainingPlan = [...plan];
+  const assigned = {};
+  const shiftCount = {}; // max 2 osoby na tę samą zmianę
+
+  // Preferencje zmiany (max 2 na tę samą)
+  for (const e of working) {
+    const p = getPref(day.ds, e.id);
+    if (!p || p.type !== 'shift') continue;
+    const already = shiftCount[p.code] || 0;
+    if (already >= 2) continue;
+    const exactIdx = remainingPlan.indexOf(p.code);
+    if (exactIdx !== -1) {
+      assigned[e.id] = p.code;
+      remainingPlan.splice(exactIdx, 1);
+      shiftCount[p.code] = already + 1;
+    } else {
+      const midIdx = remainingPlan.findIndex(c => SHIFTS[c].role === 'mid');
+      if (midIdx !== -1) {
+        assigned[e.id] = p.code;
+        remainingPlan.splice(midIdx, 1);
+        shiftCount[p.code] = already + 1;
+      }
+    }
+  }
+
+  // Kontynuacja serii: ±1 względem wczoraj + bilans open/close
+  let unassigned = working.filter(e => !assigned[e.id]);
+  const continuing = unassigned
+    .filter(e => consec[e.id] > 0 && lastShift[e.id])
+    .sort((a, b) => SHIFTS[lastShift[b.id]].start - SHIFTS[lastShift[a.id]].start);
+
+  for (const e of continuing) {
+    if (remainingPlan.length === 0) break;
+    const last = lastShift[e.id];
+    remainingPlan.sort((x, y) => {
+      const ax = shiftAllowedAfter(last, x) ? 0 : 1;
+      const ay = shiftAllowedAfter(last, y) ? 0 : 1;
+      if (ax !== ay) return ax - ay;
+      const dx = shiftDist(x, last), dy = shiftDist(y, last);
+      if (dx !== dy) return dx - dy;
+      const cx = shiftCount[x] || 0, cy = shiftCount[y] || 0;
+      if (cx !== cy) return cx - cy;
+      const roleScore = (code) => {
+        const r = SHIFTS[code].role;
+        if (r === 'open') return openCnt[e.id] || 0;
+        if (r === 'close') return closeCnt[e.id] || 0;
+        return 50;
+      };
+      return roleScore(x) - roleScore(y);
+    });
+    let bestIdx = remainingPlan.findIndex(c => (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c));
+    if (bestIdx === -1) {
+      let bestD = 99;
+      remainingPlan.forEach((c, i) => {
+        if ((shiftCount[c] || 0) >= 2) return;
+        const d = shiftDist(c, last);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      });
+    }
+    if (bestIdx === -1) bestIdx = 0;
+    const code = remainingPlan[bestIdx];
+    assigned[e.id] = code;
+    remainingPlan.splice(bestIdx, 1);
+    shiftCount[code] = (shiftCount[code] || 0) + 1;
+  }
+
+  // Pozostali z historią / bez
+  unassigned = unassigned.filter(e => !assigned[e.id]);
+  const roleOrder = { open: 0, close: 1, mid: 2 };
+  const withHistory = unassigned.filter(e => lastShift[e.id]);
+  const withoutHistory = unassigned.filter(e => !lastShift[e.id]);
+
+  for (const e of withHistory) {
+    if (remainingPlan.length === 0) break;
+    const last = lastShift[e.id];
+    remainingPlan.sort((x, y) => {
+      const ax = shiftAllowedAfter(last, x) ? 0 : 1;
+      const ay = shiftAllowedAfter(last, y) ? 0 : 1;
+      if (ax !== ay) return ax - ay;
+      const dx = shiftDist(x, last), dy = shiftDist(y, last);
+      if (dx !== dy) return dx - dy;
+      const cx = shiftCount[x] || 0, cy = shiftCount[y] || 0;
+      if (cx !== cy) return cx - cy;
+      const roleScore = (code) => {
+        const r = SHIFTS[code].role;
+        if (r === 'open') return openCnt[e.id] || 0;
+        if (r === 'close') return closeCnt[e.id] || 0;
+        return 50;
+      };
+      const rs = roleScore(x) - roleScore(y);
+      if (rs !== 0) return rs;
+      return roleOrder[SHIFTS[x].role] - roleOrder[SHIFTS[y].role];
+    });
+    // Twardo: dozwolone przejście (w tym S5→min S3); jeśli brak — najbliższą dostępną
+    let bestIdx = remainingPlan.findIndex(c => (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c));
+    if (bestIdx === -1) {
+      let bestD = 99;
+      remainingPlan.forEach((c, i) => {
+        if ((shiftCount[c] || 0) >= 2) return;
+        const d = shiftDist(c, last);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      });
+    }
+    if (bestIdx === -1) bestIdx = 0;
+    const code = remainingPlan[bestIdx];
+    assigned[e.id] = code;
+    remainingPlan.splice(bestIdx, 1);
+    shiftCount[code] = (shiftCount[code] || 0) + 1;
+  }
+
+  remainingPlan.sort((a, b) => {
+    const ca = shiftCount[a] || 0, cb = shiftCount[b] || 0;
+    if (ca !== cb) return ca - cb;
+    return roleOrder[SHIFTS[a].role] - roleOrder[SHIFTS[b].role];
+  });
+  for (const code of remainingPlan) {
+    if ((shiftCount[code] || 0) >= 2) continue;
+    const role = SHIFTS[code].role;
+    const pool = withoutHistory.filter(e => !assigned[e.id]);
+    if (pool.length === 0) {
+      const any = unassigned.filter(e => !assigned[e.id]);
+      if (!any.length) break;
+      pool.push(...any);
+    }
+    pool.sort((a, b) => {
+      const countFor = id => role === 'open' ? openCnt[id] : role === 'close' ? closeCnt[id] : midCnt[id];
+      const ca = countFor(a.id), cb = countFor(b.id);
+      if (ca !== cb) return ca - cb;
+      return Math.random() - 0.5;
+    });
+    assigned[pool[0].id] = code;
+    shiftCount[code] = (shiftCount[code] || 0) + 1;
+  }
+
+  for (const e of employees) {
+    if (!workingIds.has(e.id)) {
+      consec[e.id] = 0;
+      lastShift[e.id] = null;
+      const pref = getPref(day.ds, e.id);
+      if (pref?.type === 'vacation') {
+        scheduleDay[e.id] = e.preferFreeOverUrlop === false ? 'Urlop' : 'Wolne';
+      } else {
+        scheduleDay[e.id] = 'Wolne';
+      }
+      if (isSaturday && satOffCnt) satOffCnt[e.id] = (satOffCnt[e.id] || 0) + 1;
+      continue;
+    }
+
+    const code = assigned[e.id];
+    consec[e.id]++;
+    remaining[e.id]--;
+
+    if (code) {
+      scheduleDay[e.id] = SHIFTS[code].label;
+      lastShift[e.id] = code;
+      if (SHIFTS[code].role === 'open') openCnt[e.id]++;
+      else if (SHIFTS[code].role === 'close') closeCnt[e.id]++;
+      else midCnt[e.id]++;
+    } else {
+      scheduleDay[e.id] = SHIFTS.S2.label;
+      lastShift[e.id] = 'S2';
+      midCnt[e.id]++;
+    }
+  }
+
+  return scheduleDay;
+}
+
+function countWorkingOnDay(schedule, day, employees) {
+  let n = 0;
+  for (const e of employees) {
+    if (isWorkingVal(schedule[day.ds]?.[e.id])) n++;
+  }
+  return n;
+}
+
+function hasOpenCloseCoverage(schedule, day, employees, excludeEmpId) {
+  let hasOpen = false;
+  let hasClose = false;
+  let count = 0;
+  for (const e of employees) {
+    if (e.id === excludeEmpId) continue;
+    const val = schedule[day.ds]?.[e.id];
+    if (!isWorkingVal(val)) continue;
+    count++;
+    if (val === SHIFTS.S1.label) hasOpen = true;
+    if (val === SHIFTS.S5.label) hasClose = true;
+  }
+  return { count, hasOpen, hasClose };
+}
+
+function wouldBreakConsec(empId, targetDs, schedule, openDays) {
+  const byDs = new Map(openDays.map(d => [d.ds, d]));
+  const target = byDs.get(targetDs);
+  if (!target || target.closed) return true;
+
+  // Symulacja: ten dzień jako praca, reszta bez zmian
+  let streak = 0;
+  let maxStreak = 0;
+  for (const day of openDays) {
+    if (day.closed) {
+      streak = 0;
+      continue;
+    }
+    let works;
+    if (day.ds === targetDs) works = true;
+    else works = isWorkingVal(schedule[day.ds]?.[empId]);
+    if (works) {
+      streak++;
+      maxStreak = Math.max(maxStreak, streak);
+    } else {
+      streak = 0;
+    }
+  }
+  return maxStreak > MAX_CONSECUTIVE_DAYS;
+}
+
+/**
+ * Wyrównuje liczbę otwarć i zamknięć między pracownikami przez zamiany
+ * etykiet zmian w obrębie tego samego dnia (obsada i etat bez zmian).
+ */
+function equalizeOpenCloseRoles(employees, openDays, schedule) {
+  const canTouch = (day, empId, currentCode) => {
+    if (isCellLocked(day.ds, empId)) return false;
+    const p = getPref(day.ds, empId);
+    if (p?.type === 'shift' && p.code === currentCode) return false;
+    return true;
+  };
+
+  const dayIndex = {};
+  openDays.forEach((d, i) => { dayIndex[d.ds] = i; });
+
+  const neighborWorkCode = (empId, fromIdx, dir) => {
+    const from = openDays[fromIdx];
+    const i = fromIdx + dir;
+    if (i < 0 || i >= openDays.length) return null;
+    const d = openDays[i];
+    if (Math.abs(calendarDayDiff(from.ds, d.ds)) !== 1) return null;
+    if (d.closed) return null;
+    const v = schedule[d.ds][empId];
+    if (!isWorkingVal(v)) return null;
+    return labelToShiftCode(v);
+  };
+
+  const transitionOk = (empId, dayIdx, newCode) => {
+    const prev = neighborWorkCode(empId, dayIdx, -1);
+    if (prev && !shiftAllowedAfter(prev, newCode)) return false;
+    const next = neighborWorkCode(empId, dayIdx, +1);
+    if (next && !shiftAllowedAfter(newCode, next)) return false;
+    return true;
+  };
+
+  const trySwapLabels = (day, a, b, codeA, codeB, counts) => {
+    if (!canTouch(day, a.id, codeA)) return false;
+    if (!canTouch(day, b.id, codeB)) return false;
+    const idx = dayIndex[day.ds];
+    if (idx != null) {
+      if (!transitionOk(a.id, idx, codeB)) return false;
+      if (!transitionOk(b.id, idx, codeA)) return false;
+    }
+    const labelA = SHIFTS[codeA].label;
+    const labelB = SHIFTS[codeB].label;
+    schedule[day.ds][a.id] = labelB;
+    schedule[day.ds][b.id] = labelA;
+    const roleA = SHIFTS[codeA].role;
+    const roleB = SHIFTS[codeB].role;
+    counts[a.id][roleA]--;
+    counts[a.id][roleB]++;
+    counts[b.id][roleB]--;
+    counts[b.id][roleA]++;
+    return true;
+  };
+
+  // Najpierw otwarcia, potem zamknięcia — agresywnie max−min ≤ 1
+  for (const role of ['open', 'close']) {
+    for (let pass = 0; pass < 80; pass++) {
+      const counts = computeRoleCounts(employees, openDays, schedule);
+      const active = employees.filter(e =>
+        (counts[e.id].open + counts[e.id].close + counts[e.id].mid) > 0
+      );
+      if (active.length < 2) break;
+
+      const sorted = [...active].sort((a, b) => counts[a.id][role] - counts[b.id][role]);
+      const needy = sorted[0];
+      const rich = sorted[sorted.length - 1];
+      const nNeed = counts[needy.id][role];
+      const nRich = counts[rich.id][role];
+      if (nRich - nNeed <= 1) break;
+
+      let swapped = false;
+      for (const day of openDays) {
+        if (day.closed) continue;
+        const valRich = schedule[day.ds][rich.id];
+        const valNeed = schedule[day.ds][needy.id];
+        if (!isWorkingVal(valRich) || !isWorkingVal(valNeed)) continue;
+
+        const codeRich = labelToShiftCode(valRich);
+        const codeNeed = labelToShiftCode(valNeed);
+        if (!codeRich || !codeNeed) continue;
+        if (SHIFTS[codeRich].role !== role) continue;
+        if (SHIFTS[codeNeed].role === role) continue;
+
+        if (trySwapLabels(day, rich, needy, codeRich, codeNeed, counts)) {
+          swapped = true;
+          break;
+        }
+      }
+      if (!swapped) break;
+    }
+  }
+
+  // Lokalne zamiany open↔mid / close↔mid gdy różnica ≥ 1
+  for (let pass = 0; pass < 60; pass++) {
+    const counts = computeRoleCounts(employees, openDays, schedule);
+    let improved = false;
+
+    for (const day of openDays) {
+      if (day.closed) continue;
+      const workers = employees.filter(e => isWorkingVal(schedule[day.ds][e.id]));
+
+      for (let i = 0; i < workers.length; i++) {
+        for (let j = 0; j < workers.length; j++) {
+          if (i === j) continue;
+          const a = workers[i];
+          const b = workers[j];
+          const codeA = labelToShiftCode(schedule[day.ds][a.id]);
+          const codeB = labelToShiftCode(schedule[day.ds][b.id]);
+          if (!codeA || !codeB) continue;
+          const roleA = SHIFTS[codeA].role;
+          const roleB = SHIFTS[codeB].role;
+
+          if (roleA === 'open' && roleB === 'mid' && counts[a.id].open > counts[b.id].open) {
+            if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
+              improved = true;
+              continue;
+            }
+          }
+          if (roleA === 'close' && roleB === 'mid' && counts[a.id].close > counts[b.id].close) {
+            if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
+              improved = true;
+              continue;
+            }
+          }
+          if (
+            roleA === 'open' && roleB === 'close' &&
+            counts[a.id].open > counts[b.id].open &&
+            counts[b.id].close > counts[a.id].close
+          ) {
+            if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
+              improved = true;
+            }
+          }
+        }
+      }
+    }
+    if (!improved) break;
+  }
+}
+
+function rebalanceStaffing(employees, openDays, schedule) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  for (const deficitDay of activeDays) {
+    const targetMin = minStaffForDay(deficitDay);
+    let workingCount = countWorkingOnDay(schedule, deficitDay, employees);
+    if (workingCount >= targetMin) continue;
+
+    const candidates = employees.filter(e => {
+      if (isCellLocked(deficitDay.ds, e.id)) return false;
+      const val = schedule[deficitDay.ds][e.id];
+      if (val !== 'Wolne') return false;
+      if (isHardOff(getPref(deficitDay.ds, e.id))) return false;
+      if (wouldBreakConsec(e.id, deficitDay.ds, schedule, openDays)) return false;
+      return true;
+    });
+
+    for (const e of candidates) {
+      if (workingCount >= targetMin) break;
+
+      let bestSource = null;
+      for (const src of activeDays) {
+        if (src.ds === deficitDay.ds) continue;
+        if (isCellLocked(src.ds, e.id)) continue;
+        if (!isWorkingVal(schedule[src.ds][e.id])) continue;
+
+        const srcMin = minStaffForDay(src);
+        const cov = hasOpenCloseCoverage(schedule, src, employees, e.id);
+        if (cov.count < srcMin) continue;
+        if (!cov.hasOpen || !cov.hasClose) continue;
+
+        if (!bestSource || cov.count > bestSource.count) {
+          bestSource = { day: src, count: cov.count };
+        }
+      }
+
+      if (!bestSource) continue;
+
+      schedule[bestSource.day.ds][e.id] = 'Wolne';
+      schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule)].label;
+      workingCount++;
+    }
+  }
+}
+
+function fillHoursDeficit(employees, openDays, activeDays, schedule, quota) {
+  for (const e of employees) {
+    if (e.preferFreeOverUrlop === false) continue;
+    const urlopDays = openDays.filter(d => schedule[d.ds]?.[e.id] === 'Urlop').length;
+    let deficit = quota[e.id] - countWorkedDays(e.id, openDays, schedule) - urlopDays;
+    if (deficit <= 0) continue;
+
+    for (let i = 0; i < activeDays.length && deficit > 0; i++) {
+      const day = activeDays[i];
+      if (isCellLocked(day.ds, e.id)) continue;
+      const p = getPref(day.ds, e.id);
+      if (schedule[day.ds][e.id] === 'Wolne' && p?.type === 'vacation') {
+        schedule[day.ds][e.id] = 'Urlop';
+        deficit--;
+      }
+    }
+  }
+}
+
+function ensureHourQuotas(employees, openDays, schedule, quota) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  for (const e of employees) {
+    let deficit = quota[e.id] - etatDays(e.id, openDays, schedule);
+    if (deficit <= 0) continue;
+
+    // Kandydaci: dni z „Wolne”, bez twardego off/urlopu
+    const candidates = activeDays.filter(day => {
+      if (isCellLocked(day.ds, e.id)) return false;
+      if (schedule[day.ds][e.id] !== 'Wolne') return false;
+      if (isHardOff(getPref(day.ds, e.id))) return false;
+      return true;
+    });
+
+    // Sortuj: najpierw dni poniżej min. obsady, potem nie-soboty, potem soboty
+    candidates.sort((a, b) => {
+      const staffA = countWorkingOnDay(schedule, a, employees);
+      const staffB = countWorkingOnDay(schedule, b, employees);
+      const needA = staffA < minStaffForDay(a) ? 0 : 1;
+      const needB = staffB < minStaffForDay(b) ? 0 : 1;
+      if (needA !== needB) return needA - needB;
+      const satA = a.dow === 6 ? 1 : 0;
+      const satB = b.dow === 6 ? 1 : 0;
+      if (satA !== satB) return satA - satB;
+      return a.d - b.d;
+    });
+
+    for (const day of candidates) {
+      if (deficit <= 0) break;
+      // Unikaj łamania limitu z rzędu, ale przy braku innych opcji i tak dopisz (etat nadrzędny)
+      const breaks = wouldBreakConsec(e.id, day.ds, schedule, openDays);
+      if (breaks) {
+        // Sprawdź czy jest jeszcze jakiś dzień, który nie łamie limitu
+        const hasSafer = candidates.some(d =>
+          d.ds !== day.ds &&
+          schedule[d.ds][e.id] === 'Wolne' &&
+          !isHardOff(getPref(d.ds, e.id)) &&
+          !wouldBreakConsec(e.id, d.ds, schedule, openDays)
+        );
+        if (hasSafer) continue;
+        // Brak bezpieczniejszej opcji — i tak dopisz (etat > limit)
+      }
+
+      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+      deficit--;
+    }
+  }
+
+  // Druga fala: jeśli nadal brakuje godzin, zabierz dzień komuś z nadwyżką (powyżej etatu)
+  for (const e of employees) {
+    let deficit = quota[e.id] - etatDays(e.id, openDays, schedule);
+    if (deficit <= 0) continue;
+
+    for (const day of activeDays) {
+      if (deficit <= 0) break;
+      if (isCellLocked(day.ds, e.id)) continue;
+      if (schedule[day.ds][e.id] !== 'Wolne') continue;
+      if (isHardOff(getPref(day.ds, e.id))) continue;
+
+      // Nadwyżka = praca+urlop > etat
+      const donors = employees.filter(o => {
+        if (o.id === e.id) return false;
+        if (isCellLocked(day.ds, o.id)) return false;
+        if (!isWorkingVal(schedule[day.ds][o.id])) return false;
+        if (isHardOff(getPref(day.ds, o.id))) return false;
+        return etatDays(o.id, openDays, schedule) > quota[o.id];
+      }).sort((a, b) =>
+        etatDays(b.id, openDays, schedule) - etatDays(a.id, openDays, schedule)
+      );
+
+      if (donors.length === 0) {
+        schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+        deficit--;
+        continue;
+      }
+
+      const donor = donors[0];
+      // Donor oddaje dzień (Wolne), e przejmuje sensowną zmianę
+      schedule[day.ds][donor.id] = 'Wolne';
+      schedule[day.ds][e.id] = SHIFTS[pickShiftCodeForDay(day, employees, schedule)].label;
+      deficit--;
+    }
+  }
+}
+
+const LABEL_TO_CODE = Object.fromEntries(SHIFT_CODES.map(c => [SHIFTS[c].label, c]));
+const labelToShiftCode = label => LABEL_TO_CODE[label] || null;
+
+function pickShiftCodeForDay(day, employees, schedule, excludeId) {
+  let hasOpen = false, hasClose = false;
+  const used = new Set();
+  for (const o of employees) {
+    if (excludeId && o.id === excludeId) continue;
+    const v = schedule[day.ds][o.id];
+    if (!isWorkingVal(v)) continue;
+    used.add(v);
+    if (v === SHIFTS.S1.label) hasOpen = true;
+    if (v === SHIFTS.S5.label) hasClose = true;
+  }
+  if (!hasOpen) return 'S1';
+  if (!hasClose) return 'S5';
+  if (!used.has(SHIFTS.S2.label)) return 'S2';
+  if (!used.has(SHIFTS.S3.label)) return 'S3';
+  if (!used.has(SHIFTS.S4.label)) return 'S4';
+  return 'S3';
+}
+
+function computeRoleCounts(employees, openDays, schedule) {
+  const counts = {};
+  for (const e of employees) {
+    counts[e.id] = { open: 0, close: 0, mid: 0 };
+  }
+  for (const day of openDays) {
+    if (day.closed) continue;
+    for (const e of employees) {
+      const code = labelToShiftCode(schedule[day.ds]?.[e.id]);
+      if (!code) continue;
+      const role = SHIFTS[code].role;
+      counts[e.id][role]++;
+    }
+  }
+  return counts;
+}
+
+function computeFreeSaturdays(employees, openDays, schedule) {
+  const counts = {};
+  for (const e of employees) counts[e.id] = 0;
+  for (const day of openDays) {
+    if (day.closed || day.dow !== 6) continue;
+    for (const e of employees) {
+      const val = schedule[day.ds]?.[e.id];
+      if (val === 'Wolne' || val === 'Urlop') counts[e.id]++;
+    }
+  }
+  return counts;
+}
+
+function equalizeFreeSaturdays(employees, openDays, schedule) {
+  const activeDays = openDays.filter(d => !d.closed);
+  const saturdays = activeDays.filter(d => d.dow === 6);
+  const weekdays = activeDays.filter(d => d.dow !== 6);
+
+  const prefs = employees.filter(e => e.preferFreeSaturdays);
+  if (prefs.length < 2 || saturdays.length === 0) return;
+
+  for (let pass = 0; pass < 40; pass++) {
+    const counts = computeFreeSaturdays(employees, openDays, schedule);
+    const sorted = [...prefs].sort((a, b) => (counts[a.id] || 0) - (counts[b.id] || 0));
+    const needy = sorted[0];
+    const rich = sorted[sorted.length - 1];
+    const nNeed = counts[needy.id] || 0;
+    const nRich = counts[rich.id] || 0;
+
+    // Różnica max 1 — wystarczająco równo
+    if (nRich - nNeed <= 1) break;
+
+    // Szukaj soboty: rich ma Wolne/Urlop, needy pracuje
+    let swapped = false;
+    for (const sat of saturdays) {
+      if (isCellLocked(sat.ds, rich.id) || isCellLocked(sat.ds, needy.id)) continue;
+      const richVal = schedule[sat.ds][rich.id];
+      const needVal = schedule[sat.ds][needy.id];
+      if (!(richVal === 'Wolne' || richVal === 'Urlop')) continue;
+      if (!isWorkingVal(needVal)) continue;
+      if (isHardOff(getPref(sat.ds, rich.id))) continue; // nie zabieraj twardego wolnego
+      if (isHardOff(getPref(sat.ds, needy.id))) continue;
+
+      // Kompensacja etatu: dzień powszedni gdzie rich pracuje, a needy ma Wolne
+      let compDay = null;
+      for (const wd of weekdays) {
+        if (isCellLocked(wd.ds, rich.id) || isCellLocked(wd.ds, needy.id)) continue;
+        if (!isWorkingVal(schedule[wd.ds][rich.id])) continue;
+        if (schedule[wd.ds][needy.id] !== 'Wolne') continue;
+        if (isHardOff(getPref(wd.ds, needy.id))) continue;
+        if (isHardOff(getPref(wd.ds, rich.id))) continue;
+        // Po zamianie min. obsada soboty i weekdaya nie może spaść poniżej minimum
+        // (sobota: needy wychodzi → sprawdź obsadę bez niego)
+        const satCov = hasOpenCloseCoverage(schedule, sat, employees, needy.id);
+        if (satCov.count < minStaffForDay(sat) - 0) {
+          // needy wychodzi z soboty; rich wchodzi — obsada bez zmian liczbowo
+        }
+        // weekday: rich wychodzi, needy wchodzi — obsada bez zmian
+        compDay = wd;
+        break;
+      }
+
+      if (!compDay) {
+        // Brak kompensaty — jeśli rich ma nadmiar godzin względem etatu, można tylko oddać sobotę
+        // ale etat needy spadnie. Bezpieczniej pominąć.
+        continue;
+      }
+
+      // Zamiana soboty: needy → Wolne, rich → praca (przejmuje sensowną zmianę)
+      schedule[sat.ds][needy.id] = 'Wolne';
+      schedule[sat.ds][rich.id] = SHIFTS[pickShiftCodeForDay(sat, employees, schedule, needy.id)].label;
+
+      // Kompensata weekday: rich → Wolne, needy → praca
+      schedule[compDay.ds][rich.id] = 'Wolne';
+      schedule[compDay.ds][needy.id] = SHIFTS[pickShiftCodeForDay(compDay, employees, schedule, rich.id)].label;
+
+      swapped = true;
+      break;
+    }
+
+    if (!swapped) break;
+  }
+}
+
+/**
+ * Wygładź przejścia zmian między kolejnymi dniami pracy:
+ * skok max ±1 pozycja (S1↔S2↔S3↔S4↔S5). Zamienia etykiety w obrębie dnia.
+ */
+function smoothShiftTransitions(employees, openDays, schedule) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  const tryImprove = (strictPartner) => {
+    let improved = false;
+    for (const e of employees) {
+      for (let i = 1; i < activeDays.length; i++) {
+        const prev = activeDays[i - 1];
+        const day = activeDays[i];
+        if (calendarDayDiff(prev.ds, day.ds) !== 1) continue;
+        const prevVal = schedule[prev.ds][e.id];
+        const curVal = schedule[day.ds][e.id];
+        if (!isWorkingVal(prevVal) || !isWorkingVal(curVal)) continue;
+
+        const prevCode = labelToShiftCode(prevVal);
+        const curCode = labelToShiftCode(curVal);
+        if (!prevCode || !curCode) continue;
+        if (shiftAllowedAfter(prevCode, curCode)) continue;
+        if (isCellLocked(day.ds, e.id)) continue;
+
+        const pref = getPref(day.ds, e.id);
+        if (pref?.type === 'shift' && pref.code === curCode) continue;
+
+        const workers = employees.filter(w =>
+          w.id !== e.id && isWorkingVal(schedule[day.ds][w.id]) && !isCellLocked(day.ds, w.id)
+        );
+        let best = null;
+        let bestDist = shiftDist(prevCode, curCode);
+        let bestAllowed = shiftAllowedAfter(prevCode, curCode);
+
+        for (const w of workers) {
+          const wCode = labelToShiftCode(schedule[day.ds][w.id]);
+          if (!wCode) continue;
+          const wp = getPref(day.ds, w.id);
+          if (wp?.type === 'shift' && wp.code === wCode) continue;
+
+          const allowedE = shiftAllowedAfter(prevCode, wCode);
+          const newDistE = shiftDist(prevCode, wCode);
+          // Preferuj dozwolone przejście; wśród dozwolonych — mniejszy dystans
+          if (bestAllowed && !allowedE) continue;
+          if (allowedE === bestAllowed && newDistE >= bestDist) continue;
+          if (!allowedE && newDistE >= bestDist) continue;
+
+          const wPrev = schedule[prev.ds][w.id];
+          const wPrevCode = isWorkingVal(wPrev) ? labelToShiftCode(wPrev) : null;
+          if (wPrevCode) {
+            const partnerOk = shiftAllowedAfter(wPrevCode, curCode);
+            if (strictPartner) {
+              if (!partnerOk) continue;
+            } else {
+              const partnerOldOk = shiftAllowedAfter(wPrevCode, wCode);
+              if (!partnerOk && partnerOldOk) continue;
+            }
+          }
+          if (i + 1 < activeDays.length) {
+            const nxt = activeDays[i + 1];
+            const wNext = schedule[nxt.ds][w.id];
+            if (isWorkingVal(wNext)) {
+              const wNextCode = labelToShiftCode(wNext);
+              if (wNextCode && !shiftAllowedAfter(curCode, wNextCode)) continue;
+            }
+            const eNext = schedule[nxt.ds][e.id];
+            if (isWorkingVal(eNext)) {
+              const eNextCode = labelToShiftCode(eNext);
+              if (eNextCode && !shiftAllowedAfter(wCode, eNextCode)) {
+                if (shiftAllowedAfter(curCode, eNextCode)) continue;
+              }
+            }
+          }
+
+          best = w;
+          bestDist = newDistE;
+          bestAllowed = allowedE;
+        }
+
+        if (best) {
+          const tmp = schedule[day.ds][e.id];
+          schedule[day.ds][e.id] = schedule[day.ds][best.id];
+          schedule[day.ds][best.id] = tmp;
+          improved = true;
+        }
+      }
+    }
+    return improved;
+  };
+
+  for (let pass = 0; pass < 50; pass++) {
+    if (!tryImprove(true)) break;
+  }
+  for (let pass = 0; pass < 30; pass++) {
+    if (!tryImprove(false)) break;
+  }
+}
+
+function fulfillShiftPreferences(employees, openDays, schedule) {
+  for (const day of openDays) {
+    if (day.closed) continue;
+    const workers = employees.filter(e => isWorkingVal(schedule[day.ds][e.id]));
+    if (!workers.length) continue;
+
+    const countLabel = (label, skipId) => {
+      let n = 0;
+      for (const w of workers) {
+        if (skipId && w.id === skipId) continue;
+        if (schedule[day.ds][w.id] === label) n++;
+      }
+      return n;
+    };
+
+    for (const e of workers) {
+      if (isCellLocked(day.ds, e.id)) continue;
+      const p = getPref(day.ds, e.id);
+      if (!p || p.type !== 'shift' || !SHIFTS[p.code]) continue;
+      const expected = SHIFTS[p.code].label;
+      if (schedule[day.ds][e.id] === expected) continue;
+
+      // 1) Zamiana z kimś, kto ma expected, a nie preferuje tej zmiany
+      let swapped = false;
+      for (const w of workers) {
+        if (w.id === e.id) continue;
+        if (isCellLocked(day.ds, w.id)) continue;
+        if (schedule[day.ds][w.id] !== expected) continue;
+        const wp = getPref(day.ds, w.id);
+        if (wp?.type === 'shift' && SHIFTS[wp.code]?.label === expected) continue;
+        const myLabel = schedule[day.ds][e.id];
+        schedule[day.ds][e.id] = expected;
+        schedule[day.ds][w.id] = myLabel;
+        swapped = true;
+        break;
+      }
+      if (swapped) continue;
+
+      // 2) Wolne miejsce na preferred (< 2) — ustaw bezpośrednio
+      if (countLabel(expected) < 2) {
+        schedule[day.ds][e.id] = expected;
+      }
+    }
+
+    // Utrzymaj open + close
+    let hasOpen = false, hasClose = false;
+    for (const w of workers) {
+      const v = schedule[day.ds][w.id];
+      if (v === SHIFTS.S1.label) hasOpen = true;
+      if (v === SHIFTS.S5.label) hasClose = true;
+    }
+    if (!hasOpen || !hasClose) {
+      for (const w of workers) {
+        const wp = getPref(day.ds, w.id);
+        if (wp?.type === 'shift') continue;
+        if (!hasOpen) {
+          schedule[day.ds][w.id] = SHIFTS.S1.label;
+          hasOpen = true;
+        } else if (!hasClose) {
+          schedule[day.ds][w.id] = SHIFTS.S5.label;
+          hasClose = true;
+        }
+        if (hasOpen && hasClose) break;
+      }
+    }
+  }
+}
+
+function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUrlop, freeSaturdays) {
+  const warnings = [];
+
+  for (const day of openDays) {
+    if (day.closed) continue;
+
+    let workingCount = 0;
+    let hasOpen = false;
+    let hasClose = false;
+    const targetMin = minStaffForDay(day);
+
+    for (const e of employees) {
+      const val = schedule[day.ds][e.id];
+      if (!isWorkingVal(val)) continue;
+      workingCount++;
+      if (val === SHIFTS.S1.label) hasOpen = true;
+      if (val === SHIFTS.S5.label) hasClose = true;
+    }
+
+    if (workingCount < targetMin) {
+      const satNote = day.dow === 6 ? ` (sobota, docelowo ${MIN_STAFF_SATURDAY})` : '';
+      warnings.push(
+        `Dzień ${day.d}.${curMonth}: Niska obsada salonu (${workingCount} os.). Minimum: ${targetMin}${satNote}.`
+      );
+    } else {
+      if (!hasOpen) {
+        warnings.push(
+          `Dzień ${day.d}.${curMonth}: Brak osoby otwierającej salon (zmiana ${SHIFTS.S1.label}).`
+        );
+      }
+      if (!hasClose) {
+        warnings.push(
+          `Dzień ${day.d}.${curMonth}: Brak osoby zamykającej salon (zmiana ${SHIFTS.S5.label}).`
+        );
+      }
+    }
+  }
+
+  for (const e of employees) {
+    const h = totalHours(e, openDays, schedule, actualUrlop);
+    if (h < e.target) {
+      warnings.push(
+        `${e.name}: nie udało się osiągnąć etatu (${h}h z ${e.target}h).`
+      );
+    }
+    if (e.preferFreeSaturdays && (freeSaturdays[e.id] || 0) < TARGET_FREE_SATURDAYS) {
+      warnings.push(
+        `${e.name}: tylko ${freeSaturdays[e.id] || 0} wolne soboty (docelowo ${TARGET_FREE_SATURDAYS}).`
+      );
+    }
+  }
+
+  // Miękkie ostrzeżenia: niespełnione preferencje zmian
+  const soft = [];
+  for (const day of openDays) {
+    if (day.closed) continue;
+    for (const e of employees) {
+      const p = getPref(day.ds, e.id);
+      if (!p || p.type !== 'shift') continue;
+      const expected = SHIFTS[p.code]?.label;
+      if (!expected) continue;
+      const val = schedule[day.ds]?.[e.id];
+      if (val !== expected) {
+        soft.push(`${e.name}, ${day.d}.${curMonth}: preferencja ${expected}, jest ${val || '—'}.`);
+      }
+    }
+  }
+
+  return { hard: warnings, soft };
+}
+
+function generateSchedule() {
+  const { employees, curYear, curMonth } = state;
+
+  if (employees.length === 0) {
+    renderWarnings(['Brak pracowników w systemie. Dodaj przynajmniej jedną osobę.'], []);
+    return;
+  }
+
+  const openDays = buildOpenDays(curYear, curMonth);
+  const activeDays = openDays.filter(d => !d.closed);
+  const nd = openDays.length;
+
+  const { quota, remaining, requiredOff } = computeQuotas(employees, activeDays, nd);
+
+  const consec = {};
+  const openCnt = {};
+  const closeCnt = {};
+  const midCnt = {};
+  const lastShift = {};
+  const satOffCnt = {};
+  for (const e of employees) {
+    consec[e.id] = 0;
+    openCnt[e.id] = 0;
+    closeCnt[e.id] = 0;
+    midCnt[e.id] = 0;
+    lastShift[e.id] = null;
+    satOffCnt[e.id] = 0;
+  }
+
+  // Idziemy po kolei kalendarzowej: zamknięty dzień (niedziela/święto)
+  // zeruje serię dni pracy — wolna niedziela przerywa limit „z rzędu”.
+  const schedule = {};
+  let activeIndex = 0;
+  for (const day of openDays) {
+    if (day.closed) {
+      for (const e of employees) {
+        consec[e.id] = 0;
+        lastShift[e.id] = null;
+      }
+      schedule[day.ds] = {};
+      for (const e of employees) schedule[day.ds][e.id] = 'Wolne';
+      continue;
+    }
+    schedule[day.ds] = assignDayShifts(
+      day, activeIndex, activeDays, employees,
+      remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt
+    );
+    activeIndex++;
+  }
+
+  // Przywróć zablokowane komórki z poprzedniego grafiku (przed rebalance)
+  applyLockedCellsToSchedule(schedule, openDays, employees);
+
+  rebalanceStaffing(employees, openDays, schedule);
+  ensureHourQuotas(employees, openDays, schedule, quota);
+  equalizeFreeSaturdays(employees, openDays, schedule);
+  fillHoursDeficit(employees, openDays, activeDays, schedule, quota);
+  fulfillShiftPreferences(employees, openDays, schedule);
+  // Open/close fairness, then ±1 / S5→min S3 transitions
+  equalizeOpenCloseRoles(employees, openDays, schedule);
+  smoothShiftTransitions(employees, openDays, schedule);
+  equalizeOpenCloseRoles(employees, openDays, schedule);
+  smoothShiftTransitions(employees, openDays, schedule);
+
+  // Ponownie wymuś zablokowane wartości (post-pass nie może ich nadpisać)
+  applyLockedCellsToSchedule(schedule, openDays, employees);
+
+  const roleCounts = computeRoleCounts(employees, openDays, schedule);
+  const freeSaturdays = computeFreeSaturdays(employees, openDays, schedule);
+
+  const actualWolne = {};
+  const actualUrlop = {};
+  for (const e of employees) {
+    actualWolne[e.id] = openDays.filter(d => schedule[d.ds]?.[e.id] === 'Wolne').length;
+    actualUrlop[e.id] = openDays.filter(d => schedule[d.ds]?.[e.id] === 'Urlop').length;
+  }
+
+  const { hard: hardWarnings, soft: softWarnings } = buildScheduleWarnings(
+    openDays, schedule, employees, curMonth, actualUrlop, freeSaturdays
+  );
+
+  state.lastSchedule = {
+    openDays, schedule, quota, remaining, requiredOff,
+    actualWolne, actualUrlop, warnings: hardWarnings, softWarnings,
+    roleCounts, freeSaturdays,
+  };
+
+  renderWarnings(hardWarnings, softWarnings);
+  renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop, roleCounts, freeSaturdays);
+  saveCurrentSchedule();
+}
+
+function renderWarnings(hardWarnings, softWarnings) {
+  const box = document.getElementById('warnings');
+  const hard = hardWarnings || [];
+  const soft = softWarnings || [];
+  if (!hard.length && !soft.length) {
+    box.innerHTML = '';
+    return;
+  }
+  let html = '';
+  if (hard.length) {
+    const items = hard.map(w => `<div class="warn-item">${esc(w)}</div>`).join('');
+    html += `<div class="warn-badge" tabindex="0" title="${hard.length} ostrzeżeń krytycznych">
+      ⚠<span class="warn-count">${hard.length}</span>
+      <div class="warn-tooltip" role="tooltip">${items}</div></div>`;
+  }
+  if (soft.length) {
+    const items = soft.map(w => `<div class="warn-item warn-soft-item">${esc(w)}</div>`).join('');
+    html += `<div class="warn-badge warn-soft" tabindex="0" title="${soft.length} niespełnionych preferencji">
+      ⚡<span class="warn-count">${soft.length}</span>
+      <div class="warn-tooltip" role="tooltip">${items}</div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+// Kliknięcie w badge przełącza dymek (przyda się na touch / gdy hover nie działa)
+document.addEventListener('click', ev => {
+  const badge = ev.target.closest('.warn-badge');
+  if (badge) {
+    badge.classList.toggle('is-open');
+    return;
+  }
+  document.querySelectorAll('.warn-badge.is-open').forEach(b => b.classList.remove('is-open'));
+});
+
+const cellClassForVal = (val, weekendCls) =>
+  val === 'Wolne' ? 'off' : val === 'Urlop' ? 'urlop' : `work ${weekendCls}`;
+
+function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop, roleCounts, freeSaturdays) {
+  const { employees, curMonth, curYear } = state;
+  const out = document.getElementById('output');
+  if (!roleCounts) roleCounts = computeRoleCounts(employees, openDays, schedule);
+  if (!freeSaturdays) freeSaturdays = computeFreeSaturdays(employees, openDays, schedule);
+
+  const dayRows = openDays.map(day => {
+    const weekendCls = day.dow === 0 || day.dow === 6 ? 'weekend' : '';
+    const dayTypeCls = day.holiday ? 'holiday' : (day.closed ? 'closed' : weekendCls);
+    const cells = employees.map(e => {
+      if (day.closed) {
+        if (day.holiday) return '<td class="holiday">święto</td>';
+        return '<td class="closed">zamknięte</td>';
+      }
+      const val = schedule[day.ds][e.id];
+      const locked = isCellLocked(day.ds, e.id);
+      const cls = cellClassForVal(val, weekendCls) + (locked ? ' locked-cell' : '');
+      const code = labelToShiftCode(val);
+      const lockTitle = locked
+        ? 'Zablokowana — nie zmienia się przy GENERUJ. Klik prawy: odblokuj.'
+        : 'Kliknij, aby edytować. Prawy przycisk: zablokuj.';
+      return `<td class="${cls} editable-cell" data-ds="${day.ds}" data-emp="${e.id}" title="${lockTitle}">
+        <select class="cell-edit" data-ds="${day.ds}" data-emp="${e.id}">
+          <option value="Wolne" ${val === 'Wolne' ? 'selected' : ''}>Wolne</option>
+          <option value="Urlop" ${val === 'Urlop' ? 'selected' : ''}>Urlop</option>
+          ${SHIFT_CODES.map(c =>
+            `<option value="${SHIFTS[c].label}" ${code === c ? 'selected' : ''}>${SHIFTS[c].label}</option>`
+          ).join('')}
+        </select>
+        <span class="cell-label">${esc(val)}</span>
+      </td>`;
+    }).join('');
+    const fullDate = `${String(day.d).padStart(2, '0')}.${String(curMonth).padStart(2, '0')}.${curYear}`;
+    return `<tr>
+      <td class="${dayTypeCls}">${fullDate}</td>
+      <td class="${dayTypeCls}">${DAY_NAMES[day.dow]}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const hoursRow = employees.map(e => {
+    const h = totalHours(e, openDays, schedule, actualUrlop);
+    return `<td class="${h >= e.target ? 'ok' : 'bad'}">${h}h</td>`;
+  }).join('');
+
+  const targetRow = employees.map(e => `<td>${e.target}h</td>`).join('');
+
+  const balanceRow = employees.map(e => {
+    const diff = totalHours(e, openDays, schedule, actualUrlop) - e.target;
+    return `<td class="${diff === 0 ? 'ok' : 'bad'}">${diff > 0 ? '+' : ''}${diff}h</td>`;
+  }).join('');
+
+  const offRow = employees.map(e => {
+    const ok = actualWolne[e.id] >= requiredOff[e.id];
+    return `<td class="${ok ? 'ok' : 'bad'}">${actualWolne[e.id]} / min: ${requiredOff[e.id]}</td>`;
+  }).join('');
+
+  const vacationRow = employees.map(e => `<td>${actualUrlop[e.id]} dni</td>`).join('');
+
+  const openRow = employees.map(e => `<td>${roleCounts[e.id]?.open || 0}</td>`).join('');
+  const closeRow = employees.map(e => `<td>${roleCounts[e.id]?.close || 0}</td>`).join('');
+  const midRow = employees.map(e => `<td>${roleCounts[e.id]?.mid || 0}</td>`).join('');
+
+  const satRow = employees.map(e => {
+    const n = freeSaturdays[e.id] || 0;
+    if (!e.preferFreeSaturdays) {
+      return `<td title="Bez priorytetu wolnych sobót">${n}</td>`;
+    }
+    return `<td class="${n >= TARGET_FREE_SATURDAYS ? 'ok' : 'bad'}">${n} / min: ${TARGET_FREE_SATURDAYS}</td>`;
+  }).join('');
+
+  out.innerHTML = `
+    <div class="panel">
+      <h2 style="display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">
+        Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}
+        <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
+      </h2>
+      <div style="overflow-x:auto;">
+        <table class="sched-table">
+          <thead>
+            <tr>
+              <th>Data</th><th>Dzień</th>
+              ${employees.map(e => `<th>${esc(e.name)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${dayRows}
+            <tr class="summary"><td colspan="2">Godziny łącznie</td>${hoursRow}</tr>
+            <tr class="summary"><td colspan="2">Wymagany etat</td>${targetRow}</tr>
+            <tr class="summary"><td colspan="2">Bilans godzin</td>${balanceRow}</tr>
+            <tr class="summary"><td colspan="2">Dni wolne</td>${offRow}</tr>
+            <tr class="summary"><td colspan="2">Wykorzystany urlop</td>${vacationRow}</tr>
+            <tr class="summary"><td colspan="2">Otwarcia (8:30–16:30)</td>${openRow}</tr>
+            <tr class="summary"><td colspan="2">Zamknięcia (13:00–21:00)</td>${closeRow}</tr>
+            <tr class="summary"><td colspan="2">Zmiany środkowe</td>${midRow}</tr>
+            <tr class="summary"><td colspan="2">Wolne soboty</td>${satRow}</tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="row-actions lock-bar">
+        <button class="btn-primary" data-action="export-excel">📊 Excel</button>
+        <button class="btn-secondary" data-action="export-jpg">🖼 JPG</button>
+      </div>
+    </div>`;
+}
+
+function refreshAfterManualEdit() {
+  const ls = state.lastSchedule;
+  if (!ls) return;
+  const { employees } = state;
+  const { openDays, schedule, quota, requiredOff } = ls;
+
+  ls.actualWolne = {};
+  ls.actualUrlop = {};
+  for (const e of employees) {
+    ls.actualWolne[e.id] = openDays.filter(d => schedule[d.ds]?.[e.id] === 'Wolne').length;
+    ls.actualUrlop[e.id] = openDays.filter(d => schedule[d.ds]?.[e.id] === 'Urlop').length;
+  }
+  ls.roleCounts = computeRoleCounts(employees, openDays, schedule);
+  ls.freeSaturdays = computeFreeSaturdays(employees, openDays, schedule);
+  const { hard, soft } = buildScheduleWarnings(
+    openDays, schedule, employees, state.curMonth, ls.actualUrlop, ls.freeSaturdays
+  );
+  ls.warnings = hard;
+  ls.softWarnings = soft;
+
+  renderWarnings(ls.warnings, ls.softWarnings);
+  renderOutput(
+    openDays, schedule, requiredOff,
+    ls.actualWolne, ls.actualUrlop, ls.roleCounts, ls.freeSaturdays
+  );
+  saveCurrentSchedule();
+  updateLockToggleButton();
+}
+
+function onCellEdit(ds, empId, value) {
+  if (!state.lastSchedule?.schedule?.[ds]) return;
+  state.lastSchedule.schedule[ds][empId] = value;
+  // Ręczna edycja → automatyczna blokada (nie nadpisze GENERUJ)
+  setCellLocked(ds, empId, true);
+  refreshAfterManualEdit();
+}
+
+function toggleCellLock(ds, empId) {
+  if (!state.lastSchedule?.schedule?.[ds]) return;
+  setCellLocked(ds, empId, !isCellLocked(ds, empId));
+  refreshAfterManualEdit();
+}
+
+const XL_BORDER = {
+  top: { style: 'thin', color: { rgb: 'D4D4DA' } },
+  bottom: { style: 'thin', color: { rgb: 'D4D4DA' } },
+  left: { style: 'thin', color: { rgb: 'D4D4DA' } },
+  right: { style: 'thin', color: { rgb: 'D4D4DA' } },
+};
+function xlCell(font, fill, align = 'center') {
+  const s = { font, alignment: { horizontal: align, vertical: 'center' }, border: XL_BORDER };
+  if (fill) s.fill = { fgColor: { rgb: fill } };
+  return s;
+}
+const XL = {
+  title: xlCell({ bold: true, sz: 14, color: { rgb: '5C108C' } }, null, 'left'),
+  header: xlCell({ bold: true, sz: 11, color: { rgb: '3D0A5C' } }, 'F5EEF9'),
+  work: xlCell({ sz: 10 }),
+  weekend: xlCell({ sz: 10 }, 'EEF0F3'),
+  off: xlCell({ sz: 10, color: { rgb: '6B7280' } }, 'EEF0F3'),
+  urlop: xlCell({ bold: true, sz: 10, color: { rgb: '0369A1' } }, 'E0F2FE'),
+  closed: xlCell({ italic: true, sz: 10, color: { rgb: 'E5E7EB' } }, '4B5563'),
+  holiday: xlCell({ bold: true, sz: 10, color: { rgb: 'B45309' } }, 'FEF3C7'),
+  summary: xlCell({ bold: true, sz: 10, color: { rgb: '3D0A5C' } }, 'F5EEF9'),
+  summaryLabel: xlCell({ bold: true, sz: 10, color: { rgb: '3D0A5C' } }, 'F5EEF9', 'left'),
+  ok: xlCell({ bold: true, sz: 10, color: { rgb: '15803D' } }, 'F5EEF9'),
+  bad: xlCell({ bold: true, sz: 10, color: { rgb: 'C02626' } }, 'F5EEF9'),
+};
+
+function xlStyleForVal(val, day) {
+  if (day.closed) return day.holiday ? XL.holiday : XL.closed;
+  if (val === 'Wolne') return XL.off;
+  if (val === 'Urlop') return XL.urlop;
+  if (day.dow === 0 || day.dow === 6) return XL.weekend;
+  return XL.work;
+}
+
+function exportExcel() {
+  if (!state.lastSchedule) return;
+
+  const { employees, curMonth, curYear } = state;
+  const ls = state.lastSchedule;
+  const { openDays, schedule, actualUrlop, actualWolne, requiredOff, roleCounts, freeSaturdays } = ls;
+  const nEmp = employees.length;
+  const names = employees.map(e => e.name);
+
+  const ws = {};
+  const range = { s: { r: 0, c: 0 }, e: { r: 0, c: nEmp + 1 } };
+
+  const setCell = (r, c, value, style) => {
+    const ref = XLSX.utils.encode_cell({ r, c });
+    const cell = { v: value, t: typeof value === 'number' ? 'n' : 's' };
+    if (style) cell.s = style;
+    ws[ref] = cell;
+    if (r > range.e.r) range.e.r = r;
+    if (c > range.e.c) range.e.c = c;
+  };
+
+  setCell(0, 0, `Grafik pracy — Salon PLAY — ${MONTH_NAMES[curMonth - 1]} ${curYear}`, XL.title);
+  for (let c = 1; c <= nEmp + 1; c++) setCell(0, c, '', XL.title);
+
+  const headerR = 2;
+  setCell(headerR, 0, 'Data', XL.header);
+  setCell(headerR, 1, 'Dzień', XL.header);
+  names.forEach((name, i) => setCell(headerR, 2 + i, name, XL.header));
+
+  let r = headerR + 1;
+  for (const day of openDays) {
+    const dateLabel = `${String(day.d).padStart(2, '0')}.${String(curMonth).padStart(2, '0')}.${curYear}`;
+    const dateStyle = day.holiday ? XL.holiday : (day.closed ? XL.closed : ((day.dow === 0 || day.dow === 6) ? XL.weekend : XL.work));
+    setCell(r, 0, dateLabel, dateStyle);
+    setCell(r, 1, DAY_NAMES[day.dow], dateStyle);
+    for (let i = 0; i < nEmp; i++) {
+      const e = employees[i];
+      let val;
+      if (day.closed) val = day.holiday ? 'święto' : 'zamknięte';
+      else val = schedule[day.ds][e.id] || '';
+      setCell(r, 2 + i, val, xlStyleForVal(val, day));
+    }
+    r++;
+  }
+
+  r++; // pusta linia
+
+  const sumRows = [
+    {
+      label: 'Godziny łącznie',
+      values: employees.map(e => totalHours(e, openDays, schedule, actualUrlop) + 'h'),
+      styleFor: (e) => totalHours(e, openDays, schedule, actualUrlop) >= e.target ? XL.ok : XL.bad,
+    },
+    {
+      label: 'Wymagany etat',
+      values: employees.map(e => e.target + 'h'),
+      styleFor: () => XL.summary,
+    },
+    {
+      label: 'Bilans godzin',
+      values: employees.map(e => {
+        const d = totalHours(e, openDays, schedule, actualUrlop) - e.target;
+        return (d > 0 ? '+' : '') + d + 'h';
+      }),
+      styleFor: (e) => {
+        const d = totalHours(e, openDays, schedule, actualUrlop) - e.target;
+        return d === 0 ? XL.ok : XL.bad;
+      },
+    },
+    {
+      label: 'Dni wolne',
+      values: employees.map(e => `${actualWolne?.[e.id] ?? '—'} / min: ${requiredOff?.[e.id] ?? '—'}`),
+      styleFor: (e) => (actualWolne?.[e.id] ?? 0) >= (requiredOff?.[e.id] ?? 0) ? XL.ok : XL.bad,
+    },
+    {
+      label: 'Urlop',
+      values: employees.map(e => (actualUrlop?.[e.id] ?? 0) + ' dni'),
+      styleFor: () => XL.summary,
+    },
+    {
+      label: 'Otwarcia (8:30–16:30)',
+      values: employees.map(e => roleCounts?.[e.id]?.open ?? 0),
+      styleFor: () => XL.summary,
+    },
+    {
+      label: 'Zamknięcia (13:00–21:00)',
+      values: employees.map(e => roleCounts?.[e.id]?.close ?? 0),
+      styleFor: () => XL.summary,
+    },
+    {
+      label: 'Zmiany środkowe',
+      values: employees.map(e => roleCounts?.[e.id]?.mid ?? 0),
+      styleFor: () => XL.summary,
+    },
+    {
+      label: 'Wolne soboty',
+      values: employees.map(e => {
+        const n = freeSaturdays?.[e.id] ?? 0;
+        return e.preferFreeSaturdays ? `${n} / min: ${TARGET_FREE_SATURDAYS}` : String(n);
+      }),
+      styleFor: (e) => {
+        if (!e.preferFreeSaturdays) return XL.summary;
+        return (freeSaturdays?.[e.id] ?? 0) >= TARGET_FREE_SATURDAYS ? XL.ok : XL.bad;
+      },
+    },
+  ];
+
+  for (const row of sumRows) {
+    setCell(r, 0, row.label, XL.summaryLabel);
+    setCell(r, 1, '', XL.summaryLabel);
+    employees.forEach((e, i) => setCell(r, 2 + i, row.values[i], row.styleFor(e)));
+    r++;
+  }
+
+  ws['!ref'] = XLSX.utils.encode_range(range);
+  ws['!cols'] = [{ wch: 14 }, { wch: 8 }, ...employees.map(() => ({ wch: 16 }))];
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nEmp + 1 } }];
+  ws['!freeze'] = { xSplit: 2, ySplit: headerR + 1 };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Grafik');
+  XLSX.writeFile(wb, `Grafik_${MONTH_NAMES[curMonth - 1]}_${curYear}.xlsx`);
+}
+
+const A4_DPI = 200;
+const A4_MM = { w: 297, h: 210 }; // landscape — grafik jest szeroki
+const A4_PX = {
+  w: Math.round((A4_MM.w / 25.4) * A4_DPI), // ≈ 2339
+  h: Math.round((A4_MM.h / 25.4) * A4_DPI), // ≈ 1654
+};
+const A4_MARGIN_PX = Math.round((8 / 25.4) * A4_DPI); // ~8 mm margines
+
+function fitCanvasToA4(srcCanvas) {
+  const out = document.createElement('canvas');
+  out.width = A4_PX.w;
+  out.height = A4_PX.h;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  const maxW = A4_PX.w - A4_MARGIN_PX * 2;
+  const maxH = A4_PX.h - A4_MARGIN_PX * 2;
+  // Dopasuj proporcjonalnie do obszaru A4 (powiększ lub zmniejsz), z marginesem ~8 mm
+  const scale = Math.min(maxW / srcCanvas.width, maxH / srcCanvas.height);
+  const dw = Math.round(srcCanvas.width * scale);
+  const dh = Math.round(srcCanvas.height * scale);
+  const dx = Math.round((A4_PX.w - dw) / 2);
+  const dy = Math.round((A4_PX.h - dh) / 2);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, dx, dy, dw, dh);
+  return out;
+}
+
+async function exportJpg() {
+  if (!state.lastSchedule) return;
+  const panel = document.querySelector('#output .panel');
+  if (!panel || typeof html2canvas !== 'function') {
+    alert('Nie można wygenerować obrazu. Odśwież stronę i spróbuj ponownie.');
+    return;
+  }
+  const { curMonth, curYear } = state;
+  const btn = document.querySelector('[data-action="export-jpg"]');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Generuję…'; btn.disabled = true; }
+  try {
+    const actions = panel.querySelector('.row-actions');
+    if (actions) actions.style.visibility = 'hidden';
+    // Ukryj kłódki i obramowanie zablokowanych komórek na czas zrzutu
+    document.body.classList.add('exporting-jpg');
+    const canvas = await html2canvas(panel, {
+      backgroundColor: '#ffffff',
+      scale: 2.5,
+      useCORS: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: -window.scrollY,
+    });
+    document.body.classList.remove('exporting-jpg');
+    if (actions) actions.style.visibility = '';
+
+    // Dopasuj do A4 landscape (297×210 mm @ 200 DPI)
+    const a4Canvas = fitCanvasToA4(canvas);
+
+    const a = document.createElement('a');
+    a.download = `Grafik_${MONTH_NAMES[curMonth - 1]}_${curYear}_A4.jpg`;
+    a.href = a4Canvas.toDataURL('image/jpeg', 0.93);
+    a.click();
+  } catch (err) {
+    document.body.classList.remove('exporting-jpg');
+    console.error(err);
+    alert('Błąd podczas generowania JPG.');
+  } finally {
+    if (btn) { btn.textContent = prev; btn.disabled = false; }
+  }
+}
+
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-action]');
+  if (!el) return;
+
+  switch (el.dataset.action) {
+    case 'save-all':       saveAllData(); break;
+    case 'add-employee':   addEmployee(); break;
+    case 'remove-employee': removeEmployee(el.dataset.emp); break;
+    case 'month-change':   onMonthChange(); break;
+    case 'clear-prefs':    clearPreferences(); break;
+    case 'generate':       generateSchedule(); break;
+    case 'export-excel':   exportExcel(); break;
+    case 'export-jpg':     exportJpg(); break;
+    case 'toggle-lock-all': toggleLockAllScheduleCells(); break;
+    case 'set-view':       setAppView(el.dataset.view); break;
+  }
+});
+
+document.addEventListener('change', ev => {
+  const el = ev.target;
+
+  if (el.dataset.field && el.dataset.emp) {
+    const val = el.type === 'checkbox' ? el.checked : el.value;
+    updateEmp(el.dataset.emp, el.dataset.field, val);
+    return;
+  }
+  if (el.dataset.action === 'toggle-days-off-col') {
+    toggleDaysOffColumn(el.checked);
+    return;
+  }
+  if (el.dataset.action === 'toggle-sunday') {
+    toggleSunday(el.dataset.date, el.checked);
+    return;
+  }
+  if (el.dataset.action === 'holidays-input') {
+    applyHolidaysFromInput(el.value);
+    return;
+  }
+  if (el.dataset.action === 'set-pref') {
+    setPref(el.dataset.date, el.dataset.emp, el.value);
+  }
+});
+
+// Na bieżąco aktualizuj święta podczas wpisywania
+let holidaysInputTimer = null;
+document.addEventListener('input', ev => {
+  const el = ev.target;
+  if (el.dataset.action !== 'holidays-input') return;
+  clearTimeout(holidaysInputTimer);
+  holidaysInputTimer = setTimeout(() => applyHolidaysFromInput(el.value), 200);
+});
+
+// Ręczna edycja komórek grafiku
+document.addEventListener('click', ev => {
+  const cell = ev.target.closest('td.editable-cell');
+  if (!cell || ev.target.tagName === 'SELECT') return;
+  document.querySelectorAll('td.editable-cell.editing').forEach(c => c.classList.remove('editing'));
+  cell.classList.add('editing');
+  const sel = cell.querySelector('select.cell-edit');
+  if (sel) {
+    sel.focus();
+    // Pokaż listę od razu, gdzie przeglądarka pozwala
+    if (typeof sel.showPicker === 'function') {
+      try { sel.showPicker(); } catch (_) { /* ignore */ }
+    }
+  }
+});
+
+// Prawy przycisk: zablokuj / odblokuj komórkę
+document.addEventListener('contextmenu', ev => {
+  const cell = ev.target.closest('td.editable-cell');
+  if (!cell) return;
+  ev.preventDefault();
+  const ds = cell.dataset.ds;
+  const empId = cell.dataset.emp;
+  if (ds && empId) toggleCellLock(ds, empId);
+});
+
+document.addEventListener('change', ev => {
+  const sel = ev.target;
+  if (!sel.classList.contains('cell-edit')) return;
+  onCellEdit(sel.dataset.ds, sel.dataset.emp, sel.value);
+});
+
+document.addEventListener('focusout', ev => {
+  const cell = ev.target.closest?.('td.editable-cell');
+  if (!cell) return;
+  setTimeout(() => {
+    if (!cell.contains(document.activeElement)) cell.classList.remove('editing');
+  }, 0);
+});
+
+const APP_VIEWS = ['options', 'employee-prefs', 'generator'];
+
+function setAppView(view) {
+  if (!APP_VIEWS.includes(view)) view = 'options';
+
+  const panels = {
+    options: document.getElementById('view-options'),
+    'employee-prefs': document.getElementById('view-employee-prefs'),
+    generator: document.getElementById('view-generator'),
+  };
+  const buttons = {
+    options: document.getElementById('btnViewOptions'),
+    'employee-prefs': document.getElementById('btnViewEmployeePrefs'),
+    generator: document.getElementById('btnViewGenerator'),
+  };
+
+  for (const key of APP_VIEWS) {
+    if (panels[key]) panels[key].hidden = key !== view;
+    if (buttons[key]) {
+      const active = key === view;
+      buttons[key].classList.toggle('active', active);
+      buttons[key].setAttribute('aria-selected', String(active));
+    }
+  }
+
+  storageSet('ui:appView', view);
+}
+
+(function init() {
+  initMonthPickers();
+  loadEmployees();
+  onMonthChange();
+  const savedView = storageGet('ui:appView', 'options');
+  // migracja ze starych kluczy prefs / prefs+generator
+  const mapped = savedView === 'prefs' ? 'options'
+    : (APP_VIEWS.includes(savedView) ? savedView : 'options');
+  setAppView(mapped);
+})();
+
+// Rejestracja Service Workera — pozwala zainstalować aplikację (PWA) i używać
+// jej offline po pierwszym otwarciu. Wymaga serwowania przez http(s)/localhost —
+// nie zadziała przy otwarciu pliku bezpośrednio przez file://.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('Nie udało się zarejestrować service workera:', err);
+    });
+  });
+}
+</script>
+
+</body>
+</html>
