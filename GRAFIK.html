@@ -866,14 +866,7 @@
     white-space: nowrap;
   }
 
-  .match-bar .match-history {
-    display: inline-flex;
-    gap: 6px;
-    margin-left: auto;
-    align-items: center;
-  }
-
-  .match-bar .btn-history {
+  .btn-history {
     background: #fff;
     color: var(--play-purple-dark);
     border: 1px solid var(--play-purple-soft);
@@ -882,13 +875,42 @@
     padding: 8px 12px;
   }
 
-  .match-bar .btn-history:hover:not(:disabled) {
+  .btn-history:hover:not(:disabled) {
     background: var(--play-purple-soft);
   }
 
-  .match-bar .btn-history:disabled {
+  .btn-history:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .generate-bar .btn-history {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    font-size: 13.5px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    padding: 11px 16px;
+  }
+
+  .generate-bar .btn-history:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.26);
+    border-color: rgba(255, 255, 255, 0.7);
+  }
+
+  .generate-bar .btn-history:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .sched-edit-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
   }
 
 
@@ -1385,6 +1407,8 @@
     <div class="generate-bar-lock">
       <button type="button" id="lockToggleBtn" class="btn-lock btn-lock-toggle has-tip" data-action="toggle-lock-all" data-tip="Zablokuj wszystkie pola - opcja GENERUJ GRAFIK ich nie zmieni">🔒 ZABLOKUJ WSZYSTKIE</button>
     </div>
+    <button type="button" id="undoScheduleBtn" class="btn-history has-tip" data-action="undo-schedule" data-tip="Cofnij ostatnią zmianę w grafiku (GENERUJ, edycja komórki, dopasowanie)" disabled>↶ Cofnij</button>
+    <button type="button" id="redoScheduleBtn" class="btn-history has-tip" data-action="redo-schedule" data-tip="Ponów cofniętą zmianę" disabled>↷ Ponów</button>
   </div>
 
   <div id="warnings"></div>
@@ -1573,7 +1597,6 @@ function updateLockToggleButton() {
 function lockAllScheduleCells() {
   const ls = state.lastSchedule;
   if (!ls?.schedule || !ls?.openDays) return;
-  pushScheduleHistory();
   for (const day of ls.openDays) {
     if (day.closed) continue;
     for (const e of state.employees) {
@@ -1587,7 +1610,6 @@ function lockAllScheduleCells() {
 }
 function unlockAllScheduleCells() {
   if (!Object.keys(state.lockedCells || {}).length) return;
-  pushScheduleHistory();
   state.lockedCells = {};
   saveCurrentSchedule();
   if (state.lastSchedule) refreshAfterManualEdit();
@@ -3763,14 +3785,16 @@ function generateSchedule() {
     openDays, schedule, employees, curMonth, actualUrlop, freeSaturdays
   );
 
+  // Zapisz poprzedni grafik w historii (Cofnij wraca do stanu sprzed GENERUJ)
+  if (state.lastSchedule?.schedule) {
+    pushScheduleHistory();
+  }
+
   state.lastSchedule = {
     openDays, schedule, quota, remaining, requiredOff,
     actualWolne, actualUrlop, warnings: hardWarnings, softWarnings,
     roleCounts, freeSaturdays,
   };
-
-  // Nowa generacja = nowy punkt startowy historii
-  clearScheduleHistory();
 
   renderWarnings(hardWarnings, softWarnings);
   renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop, roleCounts, freeSaturdays);
@@ -3890,9 +3914,8 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
   out.innerHTML = `
     <div class="panel">
       <div class="panel-header sched-panel-header">
-        <h2 class="label-with-tip" style="font-size:12px;">
+        <h2 style="font-size:12px;">
           <span>Wygenerowany grafik — ${MONTH_NAMES[curMonth - 1]} ${curYear}</span>
-          <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
         </h2>
         <div class="sched-legend">
           <span class="legend-item"><span class="legend-swatch swatch-work"></span>Praca</span>
@@ -3900,22 +3923,21 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
           <span class="legend-item"><span class="legend-swatch swatch-urlop"></span>Urlop</span>
           <span class="legend-item"><span class="legend-swatch swatch-holiday"></span>Święto</span>
           <span class="legend-item"><span class="legend-swatch swatch-closed"></span>Zamknięte</span>
-          <span class="legend-item"><span class="legend-swatch swatch-locked"></span>Zablokowane</span>
+          <span class="legend-item label-with-tip">
+            <span class="legend-swatch swatch-locked"></span>Zablokowane
+            <span class="help-tip" tabindex="0" data-tip="Kliknij komórkę lewym klawiszem aby ręcznie edytować, lub prawym klawiszem by zablokować / odblokować (🔒). Zablokowane komórki nie są zmieniane przy ponownym kliknięciu GENERUJ GRAFIK.">?</span>
+          </span>
         </div>
       </div>
       <div class="match-bar">
         <span class="match-bar-label label-with-tip">
           Dopasuj grafik:
-          <span class="help-tip" tabindex="0" data-tip="Dokładnie kopiuje cały miesiąc grafiku pierwszego wybranego pracownika na drugiego. Skopiowane komórki są automatycznie blokowane (🔒).">?</span>
+          <span class="help-tip" tabindex="0" data-tip="Pierwsze pole: osoba, której grafik ma zostać zmieniony. Drugie pole: osoba, do której grafiku dopasowujemy. Skopiowane komórki są automatycznie blokowane (🔒).">?</span>
         </span>
-        <select id="matchSourceSel" aria-label="Pracownik źródłowy">${empOptsHtml}</select>
+        <select id="matchTargetSel" aria-label="Pracownik, którego grafik dopasowujemy">${empOptsHtml}</select>
         <span class="match-sep">do:</span>
-        <select id="matchTargetSel" aria-label="Pracownik docelowy">${empOptsHtml}</select>
-        <button type="button" class="btn-secondary has-tip" data-action="match-schedule" data-tip="Skopiuj grafik 1:1 i zablokuj komórki">Zastosuj</button>
-        <div class="match-history">
-          <button type="button" id="undoScheduleBtn" class="btn-history has-tip" data-action="undo-schedule" data-tip="Cofnij ostatnią zmianę w grafiku" disabled>↶ Cofnij</button>
-          <button type="button" id="redoScheduleBtn" class="btn-history has-tip" data-action="redo-schedule" data-tip="Ponów cofniętą zmianę" disabled>↷ Ponów</button>
-        </div>
+        <select id="matchSourceSel" aria-label="Pracownik wzorcowy">${empOptsHtml}</select>
+        <button type="button" class="btn-secondary has-tip" data-action="match-schedule" data-tip="Skopiuj grafik wzorcowy 1:1 na wybraną osobę i zablokuj komórki">Zastosuj</button>
       </div>
       <div style="overflow-x:auto;">
         <table class="sched-table">
@@ -3990,7 +4012,6 @@ function onCellEdit(ds, empId, value) {
 
 function toggleCellLock(ds, empId) {
   if (!state.lastSchedule?.schedule?.[ds]) return;
-  pushScheduleHistory();
   setCellLocked(ds, empId, !isCellLocked(ds, empId));
   refreshAfterManualEdit();
 }
