@@ -427,6 +427,26 @@
     content: none;
   }
 
+  /* Eksport JPG: tylko tabela + nagłówek, bez kontrolek UI */
+  body.exporting-jpg .match-bar,
+  body.exporting-jpg .row-actions.lock-bar {
+    display: none !important;
+  }
+  body.exporting-jpg #output .panel {
+    box-shadow: none;
+    border: none;
+    max-width: none;
+    width: max-content;
+    min-width: 100%;
+  }
+  body.exporting-jpg .sched-table {
+    font-size: 11px;
+  }
+  body.exporting-jpg .sched-table th,
+  body.exporting-jpg .sched-table td {
+    padding: 4px 5px;
+  }
+
   /* ——— Warnings ——— */
   #warnings {
     max-width: var(--content-max);
@@ -4138,13 +4158,14 @@ function exportExcel() {
   XLSX.writeFile(wb, `Grafik_${MONTH_NAMES[curMonth - 1]}_${curYear}.xlsx`);
 }
 
+/** Eksport JPG → pozioma A4 (297×210 mm) z małym marginesem (~5 mm). */
 const A4_DPI = 200;
-const A4_MM = { w: 297, h: 210 }; // landscape — grafik jest szeroki
+const A4_MM = { w: 297, h: 210 }; // landscape
 const A4_PX = {
   w: Math.round((A4_MM.w / 25.4) * A4_DPI), // ≈ 2339
   h: Math.round((A4_MM.h / 25.4) * A4_DPI), // ≈ 1654
 };
-const A4_MARGIN_PX = Math.round((8 / 25.4) * A4_DPI); // ~8 mm margines
+const A4_MARGIN_PX = Math.round((5 / 25.4) * A4_DPI); // ~5 mm
 
 function fitCanvasToA4(srcCanvas) {
   const out = document.createElement('canvas');
@@ -4156,7 +4177,7 @@ function fitCanvasToA4(srcCanvas) {
 
   const maxW = A4_PX.w - A4_MARGIN_PX * 2;
   const maxH = A4_PX.h - A4_MARGIN_PX * 2;
-  // Dopasuj proporcjonalnie do obszaru A4 (powiększ lub zmniejsz), z marginesem ~8 mm
+  // Skaluj proporcjonalnie, żeby cała tabela zmieściła się na A4 z marginesem
   const scale = Math.min(maxW / srcCanvas.width, maxH / srcCanvas.height);
   const dw = Math.round(srcCanvas.width * scale);
   const dh = Math.round(srcCanvas.height * scale);
@@ -4187,11 +4208,39 @@ async function exportJpg() {
   const btn = document.querySelector('[data-action="export-jpg"]');
   const prev = btn ? btn.textContent : '';
   if (btn) { btn.textContent = 'Generuję…'; btn.disabled = true; }
+
+  // Zapamiętaj style, które tymczasowo zmieniamy (szeroki układ tabeli)
+  const scrollParent = panel.querySelector('div[style*="overflow"]');
+  const prevPanel = {
+    width: panel.style.width,
+    maxWidth: panel.style.maxWidth,
+    minWidth: panel.style.minWidth,
+  };
+  const prevScroll = scrollParent ? {
+    overflow: scrollParent.style.overflow,
+    overflowX: scrollParent.style.overflowX,
+    width: scrollParent.style.width,
+  } : null;
+
   try {
-    const actions = panel.querySelector('.row-actions');
-    if (actions) actions.style.visibility = 'hidden';
-    // Ukryj kłódki i obramowanie zablokowanych komórek na czas zrzutu
     document.body.classList.add('exporting-jpg');
+
+    // Pełna szerokość tabeli (bez poziomego scrolla) — lepsze dopasowanie do A4
+    const nEmp = state.employees.length || 1;
+    // Kolumny: Data + Dzień + pracownicy; min. ~100px na osobę + 140 na datę
+    const targetW = Math.max(panel.getBoundingClientRect().width, 140 + 42 + nEmp * 100);
+    panel.style.width = targetW + 'px';
+    panel.style.maxWidth = 'none';
+    panel.style.minWidth = targetW + 'px';
+    if (scrollParent) {
+      scrollParent.style.overflow = 'visible';
+      scrollParent.style.overflowX = 'visible';
+      scrollParent.style.width = 'max-content';
+    }
+
+    // Odczekaj na layout po zmianie szerokości
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
     const canvas = await html2canvas(panel, {
       backgroundColor: '#ffffff',
       scale: 2.5,
@@ -4199,11 +4248,10 @@ async function exportJpg() {
       logging: false,
       scrollX: 0,
       scrollY: -window.scrollY,
+      windowWidth: Math.max(document.documentElement.scrollWidth, targetW + 40),
     });
-    document.body.classList.remove('exporting-jpg');
-    if (actions) actions.style.visibility = '';
 
-    // Dopasuj do A4 landscape (297×210 mm @ 200 DPI)
+    // Dopasuj do poziomej A4 (297×210 mm @ 200 DPI, margines ~5 mm)
     const a4Canvas = fitCanvasToA4(canvas);
 
     const a = document.createElement('a');
@@ -4211,10 +4259,18 @@ async function exportJpg() {
     a.href = a4Canvas.toDataURL('image/jpeg', 0.93);
     a.click();
   } catch (err) {
-    document.body.classList.remove('exporting-jpg');
     console.error(err);
     alert('Błąd podczas generowania JPG.');
   } finally {
+    document.body.classList.remove('exporting-jpg');
+    panel.style.width = prevPanel.width;
+    panel.style.maxWidth = prevPanel.maxWidth;
+    panel.style.minWidth = prevPanel.minWidth;
+    if (scrollParent && prevScroll) {
+      scrollParent.style.overflow = prevScroll.overflow;
+      scrollParent.style.overflowX = prevScroll.overflowX;
+      scrollParent.style.width = prevScroll.width;
+    }
     if (btn) { btn.textContent = prev; btn.disabled = false; }
   }
 }
