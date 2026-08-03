@@ -101,12 +101,6 @@
     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
   }
 
-  .sub {
-    color: var(--muted);
-    font-size: 12px;
-    margin: 0;
-    line-height: 1.4;
-  }
 
   /* ——— View switcher ——— */
   .view-switch {
@@ -376,13 +370,6 @@
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-  }
-
-  .generate-bar-lock-label {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
-    white-space: nowrap;
   }
 
   .generate-bar > button[data-action="generate"],
@@ -904,15 +891,6 @@
     cursor: not-allowed;
   }
 
-  .sched-edit-hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--ink-soft);
-  }
-
 
   #prefTable tbody tr:not(.row-closed):not(.row-holiday):hover td {
     background: #faf8fc;
@@ -938,29 +916,18 @@
     align-items: center;
   }
 
-  .btn-lock, .btn-unlock {
+  .btn-lock {
     font-weight: 700;
     font-size: 12.5px;
     border-radius: var(--radius-sm);
     padding: 9px 13px;
     cursor: pointer;
-  }
-
-  .btn-lock {
     background: #fff7ed;
     color: #9a3412;
     border: 1px solid #fdba74;
   }
 
   .btn-lock:hover { background: #ffedd5; }
-
-  .btn-unlock {
-    background: #f3f4f6;
-    color: #374151;
-    border: 1px solid #d1d5db;
-  }
-
-  .btn-unlock:hover { background: #e5e7eb; }
 
   .sched-table td.editable-cell .cell-edit {
     display: none;
@@ -1104,7 +1071,7 @@
     height: 16px;
     margin: 0;
     border-radius: 50%;
-    background: var(--play-purple-mid);
+    background: var(--play-purple);
     color: #fff;
     font-size: 10px;
     font-weight: 800;
@@ -1347,7 +1314,7 @@
             <th>Etykieta Pracownika</th>
             <th>Godziny / mies.</th>
             <th>
-              <span class="th-with-tip"><span class="tip-label">Wolne soboty</span><span class="help-tip" tabindex="0" data-tip="Gdy opcja jest włączona, generator stara się przydzielić przynajmniej dwie wolne soboty w miesiącu kosztem zachowania pięciu dni pracy pod rząd.">?</span></span>
+              <span class="th-with-tip"><span class="tip-label">6 dni pracy</span><span class="help-tip" tabindex="0" data-tip="Gdy opcja jest włączona, generator może przydzielić maksymalnie 6 dni pracy pod rząd, domyślnie stara się przydzielić maksymalnie 5.">?</span></span>
             </th>
             <th>
               <span class="th-with-tip"><span class="tip-label">Wolne zamiast urlopu</span><span class="help-tip" tabindex="0" data-tip="Gdy opcja jest włączona, generator przydziela pod preferencje pracownika w pierwszej kolejności dzień wolny zamiast urlopu. Przy opcji wyłączonej pod preferencje przydzielany jest tylko urlop.">?</span></span>
@@ -1445,8 +1412,16 @@ const MONTH_NAMES = [
 const MIN_STAFF = 3;
 const MIN_STAFF_SATURDAY = 4;
 const MAX_CONSECUTIVE_DAYS = 5;
+const MAX_CONSECUTIVE_DAYS_EXTENDED = 6;
 const HOURS_PER_DAY = 8;
-const TARGET_FREE_SATURDAYS = 2;
+
+/** Max dni pracy pod rząd (5 domyślnie, 6 przy allowSixConsecutive). */
+function maxConsecForEmp(empOrId) {
+  const e = typeof empOrId === 'object' && empOrId
+    ? empOrId
+    : state.employees.find(x => x.id === empOrId);
+  return e?.allowSixConsecutive ? MAX_CONSECUTIVE_DAYS_EXTENDED : MAX_CONSECUTIVE_DAYS;
+}
 
 const minStaffForDay = day => day.dow === 6 ? MIN_STAFF_SATURDAY : MIN_STAFF;
 
@@ -1455,7 +1430,7 @@ const DEFAULT_EMPLOYEES = DEFAULT_EMPLOYEE_NAMES.map((name, i) => ({
   id: 'e' + (i + 1),
   name,
   target: 160,
-  preferFreeSaturdays: true,
+  allowSixConsecutive: false,
   preferFreeOverUrlop: true,
   isStudent: false,
 }));
@@ -1484,7 +1459,7 @@ function createEmployee(overrides = {}) {
     id: uid(),
     name: 'Nowy',
     target: 160,
-    preferFreeSaturdays: true,
+    allowSixConsecutive: false,
     preferFreeOverUrlop: true,
     isStudent: false,
     ...overrides,
@@ -1548,7 +1523,8 @@ function getShiftPlan(n) {
 function loadEmployees() {
   state.employees = storageGet('employees', null) || DEFAULT_EMPLOYEES.map(e => ({ ...e }));
   for (const e of state.employees) {
-    if (e.preferFreeSaturdays === undefined) e.preferFreeSaturdays = true;
+    if (e.allowSixConsecutive === undefined) e.allowSixConsecutive = false;
+    if ('preferFreeSaturdays' in e) delete e.preferFreeSaturdays;
     if (e.preferFreeOverUrlop === undefined) e.preferFreeOverUrlop = true;
     if (e.isStudent === undefined) e.isStudent = false;
     delete e.daysOff;
@@ -1695,7 +1671,7 @@ function renderEmployeeTable() {
   const tbody = document.querySelector('#empTable tbody');
 
   const hoursC = consensusValue(e => e.target);
-  const satC = consensusValue(e => !!e.preferFreeSaturdays);
+  const sixC = consensusValue(e => !!e.allowSixConsecutive);
   const urlopC = consensusValue(e => e.preferFreeOverUrlop !== false);
 
   const allRow = `
@@ -1711,9 +1687,9 @@ function renderEmployeeTable() {
           data-emp="__all__" data-field="target">
       </td>
       <td>
-        <input type="checkbox" ${!satC.mixed && satC.value ? 'checked' : ''}
-          data-emp="__all__" data-field="preferFreeSaturdays"
-          data-mixed="${satC.mixed ? '1' : '0'}">
+        <input type="checkbox" ${!sixC.mixed && sixC.value ? 'checked' : ''}
+          data-emp="__all__" data-field="allowSixConsecutive"
+          data-mixed="${sixC.mixed ? '1' : '0'}">
       </td>
       <td>
         <input type="checkbox" ${!urlopC.mixed && urlopC.value ? 'checked' : ''}
@@ -1732,8 +1708,8 @@ function renderEmployeeTable() {
       <td><input type="text" value="${esc(emp.name)}" data-emp="${emp.id}" data-field="name"></td>
       <td><input type="number" value="${emp.target}" min="0" step="8" data-emp="${emp.id}" data-field="target"></td>
       <td>
-        <input type="checkbox" ${emp.preferFreeSaturdays ? 'checked' : ''}
-          data-emp="${emp.id}" data-field="preferFreeSaturdays">
+        <input type="checkbox" ${emp.allowSixConsecutive ? 'checked' : ''}
+          data-emp="${emp.id}" data-field="allowSixConsecutive">
       </td>
       <td>
         <input type="checkbox" ${emp.preferFreeOverUrlop !== false ? 'checked' : ''}
@@ -1760,8 +1736,8 @@ function applyEmpField(emp, field, value) {
     const n = Number(value);
     if (!Number.isFinite(n) || n < 0) return;
     emp.target = n;
-  } else if (field === 'preferFreeSaturdays') {
-    emp.preferFreeSaturdays = !!value;
+  } else if (field === 'allowSixConsecutive') {
+    emp.allowSixConsecutive = !!value;
   } else if (field === 'preferFreeOverUrlop') {
     emp.preferFreeOverUrlop = !!value;
   } else if (field === 'isStudent') {
@@ -2316,17 +2292,6 @@ function computeQuotas(employees, activeDays, nd) {
   return { quota, remaining, requiredOff };
 }
 
-function canFillHoursWithoutThisSaturday(empId, index, activeDays, remaining) {
-  let futureNonSat = 0;
-  for (let i = index + 1; i < activeDays.length; i++) {
-    const day = activeDays[i];
-    if (day.dow === 6) continue;
-    if (isHardOff(getPref(day.ds, empId))) continue;
-    futureNonSat++;
-  }
-  // Wymagamy zapasu: remaining musi być ściśle mniejsze od przyszłych slotów poza sobotami
-  return remaining[empId] < futureNonSat;
-}
 
 function assignDayShifts(day, index, activeDays, employees, remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt) {
   const scheduleDay = {};
@@ -2342,30 +2307,9 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     employees.filter(e => isHardOff(getPref(day.ds, e.id))).map(e => e.id)
   );
 
-  // Sobota: osoby z priorytetem wolnych sobót, które jeszcze nie mają 2 i mogą domknąć etat bez tej soboty → chronione
-  const protectedSatOff = new Set();
-  if (isSaturday) {
-    for (const e of employees) {
-      if (hardOffIds.has(e.id)) continue;
-      if (!e.preferFreeSaturdays) continue;
-      if ((satOffCnt[e.id] || 0) >= TARGET_FREE_SATURDAYS) continue;
-      if (remaining[e.id] <= 0) {
-        protectedSatOff.add(e.id);
-        continue;
-      }
-      if (canFillHoursWithoutThisSaturday(e.id, index, activeDays, remaining)) {
-        protectedSatOff.add(e.id);
-      }
-    }
-  }
-
-  const blockedIds = new Set([...hardOffIds, ...protectedSatOff]);
   // Uczniowie nie kompletują minimalnej obsady — liczymy tylko nie-uczniów
   const regularIds = new Set(employees.filter(e => !isStudentEmp(e)).map(e => e.id));
   const regularAvailable = [...regularIds].filter(id => !hardOffIds.has(id)).length;
-  const regularUnblocked = [...regularIds].filter(id => !blockedIds.has(id)).length;
-  const availableCount = employees.length - blockedIds.size;
-  // Minimum obsady > wolne soboty: softMin nie spada przez chronione soboty
   const softMin = Math.min(targetMin, regularAvailable);
 
   const urgencies = {};
@@ -2389,15 +2333,10 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (prefA !== prefB) return prefB - prefA;
 
     if (isSaturday && satOffCnt) {
-      // Bez priorytetu wolnych sobót → sprawiedliwy podział (jak open/close):
-      // kto ma więcej wolnych sobót, ten raczej pracuje.
-      // Z priorytetem → chronieni (pracują później).
-      const workPriority = e => {
-        const free = satOffCnt[e.id] || 0;
-        if (!e.preferFreeSaturdays) return -free;
-        return 50 - free;
-      };
-      if (workPriority(a) !== workPriority(b)) return workPriority(a) - workPriority(b);
+      // Sprawiedliwy podział sobót: kto ma więcej wolnych, ten raczej pracuje
+      const freeA = satOffCnt[a.id] || 0;
+      const freeB = satOffCnt[b.id] || 0;
+      if (freeA !== freeB) return freeB - freeA;
     }
     if (Math.abs(urgencies[b.id] - urgencies[a.id]) > 0.05) {
       return urgencies[b.id] - urgencies[a.id];
@@ -2411,15 +2350,15 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
 
   const underQuota = employees.filter(
     e =>
-      !blockedIds.has(e.id) &&
-      consec[e.id] < MAX_CONSECUTIVE_DAYS &&
+      !hardOffIds.has(e.id) &&
+      consec[e.id] < maxConsecForEmp(e) &&
       remaining[e.id] > 0
   );
   underQuota.sort(sortByUrgency);
 
   // Docelowa obsada dnia: tylu, ilu naprawdę jest jeszcze "pod etatem" (underQuota),
   // a gdy takich osób zabraknie — przynajmniej softMin (minimalna bezpieczna obsada,
-  // resztę dobierze pullToMin() spośród osób ponad etatem / chronionych sobót).
+  // resztę dobierze pullToMin() spośród osób ponad etatem).
   const actualNeed = Math.min(
     need,
     underQuota.length > 0 ? underQuota.length : softMin,
@@ -2447,7 +2386,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   }
 
   // Dociągnięcie obsady — najpierw osoby z remaining > 0 (bez nadgodzin)
-  const pullToMin = (minNeeded, allowProtected, allowOverConsec, regularsOnly) => {
+  const pullToMin = (minNeeded, allowOverConsec, regularsOnly) => {
     const currentCount = () => regularsOnly
       ? working.filter(e => !isStudentEmp(e)).length
       : working.length;
@@ -2457,18 +2396,13 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       .filter(e => {
         if (regularsOnly && isStudentEmp(e)) return false;
         if (alreadyIn.has(e.id) || hardOffIds.has(e.id)) return false;
-        if (!allowProtected && protectedSatOff.has(e.id)) return false;
-        if (!allowOverConsec && consec[e.id] >= MAX_CONSECUTIVE_DAYS) return false;
+        if (!allowOverConsec && consec[e.id] >= maxConsecForEmp(e)) return false;
         return true;
       })
       .sort((a, b) => {
-        // Najpierw osoby poniżej etatu, potem chronione soboty na końcu
         const ra = remaining[a.id] > 0 ? 0 : 1;
         const rb = remaining[b.id] > 0 ? 0 : 1;
         if (ra !== rb) return ra - rb;
-        const pa = protectedSatOff.has(a.id) ? 1 : 0;
-        const pb = protectedSatOff.has(b.id) ? 1 : 0;
-        if (pa !== pb) return pa - pb;
         return consec[a.id] - consec[b.id] || Math.random() - 0.5;
       });
     while (currentCount() < minNeeded && pool.length) {
@@ -2479,11 +2413,9 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   };
 
   // Minimalna obsada = nie-uczniowie (uczniowie nie wliczają się w minimum)
-  // Priorytet obsady nad wolnymi sobotami: na końcu odblokuj chronione soboty do pełnego minimum
   const staffFloor = Math.min(targetMin, regularAvailable);
-  pullToMin(staffFloor, false, false, true);
-  pullToMin(staffFloor, false, true, true);
-  pullToMin(staffFloor, true, true, true);
+  pullToMin(staffFloor, false, true);
+  pullToMin(staffFloor, true, true);
   // Dodatkowo dobieraj osoby z remaining > 0 (w tym uczniów) do need — bez forsowania nadgodzin
   {
     const alreadyIn = new Set(working.map(e => e.id));
@@ -2492,7 +2424,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
         !alreadyIn.has(e.id) &&
         !hardOffIds.has(e.id) &&
         remaining[e.id] > 0 &&
-        consec[e.id] < MAX_CONSECUTIVE_DAYS
+        consec[e.id] < maxConsecForEmp(e)
       )
       .sort((a, b) => {
         const ua = urgencies[a.id] || 0;
@@ -2771,7 +2703,7 @@ function wouldBreakConsec(empId, targetDs, schedule, openDays) {
       streak = 0;
     }
   }
-  return maxStreak > MAX_CONSECUTIVE_DAYS;
+  return maxStreak > maxConsecForEmp(empId);
 }
 
 /**
@@ -2938,15 +2870,7 @@ function rebalanceStaffing(employees, openDays, schedule) {
         return true;
       });
 
-      // Na sobotę: najpierw osoby BEZ priorytetu wolnych sobót, potem z najmniejszą liczbą wolnych sobót
-      candidates.sort((a, b) => {
-        if (deficitDay.dow === 6) {
-          const pa = a.preferFreeSaturdays ? 1 : 0;
-          const pb = b.preferFreeSaturdays ? 1 : 0;
-          if (pa !== pb) return pa - pb;
-        }
-        return Math.random() - 0.5;
-      });
+      candidates.sort(() => Math.random() - 0.5);
 
       for (const e of candidates) {
         if (workingCount >= targetMin) break;
@@ -3055,7 +2979,7 @@ function trimOvertime(employees, openDays, schedule, quota) {
       if (!workDays.length) continue;
 
       workDays.sort((a, b) => {
-        // Najpierw soboty (łatwiej o wolne soboty), potem dni z większą nadwyżką obsady
+        // Najpierw soboty, potem dni z większą nadwyżką obsady
         const satA = a.dow === 6 ? 0 : 1;
         const satB = b.dow === 6 ? 0 : 1;
         if (satA !== satB) return satA - satB;
@@ -3378,9 +3302,7 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
   const weekdays = activeDays.filter(d => d.dow !== 6);
   if (saturdays.length === 0) return;
 
-  // Wyrównaj wolne soboty osobno w dwóch grupach (jak open/close wśród regularów):
-  // 1) z priorytetem wolnych sobót → dążenie do TARGET_FREE_SATURDAYS i równego podziału
-  // 2) bez priorytetu → sprawiedliwy podział wolnych sobót (max−min ≤ 1)
+  // Sprawiedliwy podział wolnych sobót między wszystkimi (max−min ≤ 1), jak open/close
   const runForGroup = (group) => {
     if (group.length < 2) return;
 
@@ -3407,7 +3329,7 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
         if (isHardOff(getPref(sat.ds, needy.id))) continue;
 
         // Kompensacja etatu: dzień powszedni gdzie rich pracuje, a needy ma Wolne
-        // Minimum obsady > wolne soboty: zamiana tylko gdy obsada regularna nie spadnie
+        // Zamiana tylko gdy obsada regularna nie spadnie poniżej minimum
         let compDay = null;
         for (const wd of weekdays) {
           if (isCellLocked(wd.ds, rich.id) || isCellLocked(wd.ds, needy.id)) continue;
@@ -3456,8 +3378,8 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
     }
   };
 
-  runForGroup(employees.filter(e => e.preferFreeSaturdays));
-  runForGroup(employees.filter(e => !e.preferFreeSaturdays));
+  // Soboty zawsze sprawiedliwie między wszystkimi
+  runForGroup(employees);
 }
 
 /**
@@ -3712,12 +3634,6 @@ function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUr
         `${e.name}: nadgodziny (+${over}h, ${h}h z ${e.target}h).`
       );
     }
-    // Za mało wolnych sobót → żółty
-    if (e.preferFreeSaturdays && (freeSaturdays[e.id] || 0) < TARGET_FREE_SATURDAYS) {
-      soft.push(
-        `${e.name}: tylko ${freeSaturdays[e.id] || 0} wolne soboty (docelowo ${TARGET_FREE_SATURDAYS}).`
-      );
-    }
   }
 
   // Niespełnione preferencje zmian → żółty
@@ -3795,7 +3711,7 @@ function generateSchedule() {
   ensureHourQuotas(employees, openDays, schedule, quota);
   trimOvertime(employees, openDays, schedule, quota);
   equalizeFreeSaturdays(employees, openDays, schedule);
-  // Po wyrównaniu sobót — ponownie dociągnij minimum obsady (obsada > wolne soboty)
+  // Po wyrównaniu sobót — ponownie dociągnij minimum obsady
   rebalanceStaffing(employees, openDays, schedule);
   fillHoursDeficit(employees, openDays, activeDays, schedule, quota);
   // Po kompensatach sobót / urlopu — ponownie zetnij nadgodziny
@@ -3951,10 +3867,7 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
 
   const satRow = employees.map(e => {
     const n = freeSaturdays[e.id] || 0;
-    if (!e.preferFreeSaturdays) {
-      return `<td class="has-tip" data-tip="Bez priorytetu wolnych sobót">${n}</td>`;
-    }
-    return `<td class="${n >= TARGET_FREE_SATURDAYS ? 'ok' : 'bad'}">${n} / min: ${TARGET_FREE_SATURDAYS}</td>`;
+    return `<td>${n}</td>`;
   }).join('');
 
   const empOptsHtml = employees.map(e =>
@@ -4203,14 +4116,8 @@ function exportExcel() {
     },
     {
       label: 'Wolne soboty',
-      values: employees.map(e => {
-        const n = freeSaturdays?.[e.id] ?? 0;
-        return e.preferFreeSaturdays ? `${n} / min: ${TARGET_FREE_SATURDAYS}` : String(n);
-      }),
-      styleFor: (e) => {
-        if (!e.preferFreeSaturdays) return XL.summary;
-        return (freeSaturdays?.[e.id] ?? 0) >= TARGET_FREE_SATURDAYS ? XL.ok : XL.bad;
-      },
+      values: employees.map(e => freeSaturdays?.[e.id] ?? 0),
+      styleFor: () => XL.summary,
     },
   ];
 
