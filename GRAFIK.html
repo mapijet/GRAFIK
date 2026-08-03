@@ -2365,8 +2365,8 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   const regularAvailable = [...regularIds].filter(id => !hardOffIds.has(id)).length;
   const regularUnblocked = [...regularIds].filter(id => !blockedIds.has(id)).length;
   const availableCount = employees.length - blockedIds.size;
-  const softMin = Math.min(targetMin, Math.max(regularUnblocked, regularAvailable));
-  // softMin oparte o nie-uczniów (chronione soboty mogą być „odblokowane” w awarii)
+  // Minimum obsady > wolne soboty: softMin nie spada przez chronione soboty
+  const softMin = Math.min(targetMin, regularAvailable);
 
   const urgencies = {};
   for (const e of employees) {
@@ -2475,10 +2475,11 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   };
 
   // Minimalna obsada = nie-uczniowie (uczniowie nie wliczają się w minimum)
+  // Priorytet obsady nad wolnymi sobotami: na końcu odblokuj chronione soboty do pełnego minimum
   const staffFloor = Math.min(targetMin, regularAvailable);
   pullToMin(staffFloor, false, false, true);
   pullToMin(staffFloor, false, true, true);
-  pullToMin(Math.min(MIN_STAFF, staffFloor), true, true, true);
+  pullToMin(staffFloor, true, true, true);
   // Dodatkowo dobieraj osoby z remaining > 0 (w tym uczniów) do need — bez forsowania nadgodzin
   {
     const alreadyIn = new Set(working.map(e => e.id));
@@ -2916,48 +2917,71 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
 function rebalanceStaffing(employees, openDays, schedule) {
   const activeDays = openDays.filter(d => !d.closed);
 
-  for (const deficitDay of activeDays) {
-    const targetMin = minStaffForDay(deficitDay);
-    let workingCount = countWorkingOnDay(schedule, deficitDay, employees);
-    if (workingCount >= targetMin) continue;
+  const tryFillDeficit = (allowBreakConsec) => {
+    for (const deficitDay of activeDays) {
+      const targetMin = minStaffForDay(deficitDay);
+      let workingCount = countWorkingOnDay(schedule, deficitDay, employees);
+      if (workingCount >= targetMin) continue;
 
-    // Tylko nie-uczniowie kompletują minimum obsady
-    const candidates = employees.filter(e => {
-      if (isStudentEmp(e)) return false;
-      if (isCellLocked(deficitDay.ds, e.id)) return false;
-      const val = schedule[deficitDay.ds][e.id];
-      if (val !== 'Wolne') return false;
-      if (isHardOff(getPref(deficitDay.ds, e.id))) return false;
-      if (wouldBreakConsec(e.id, deficitDay.ds, schedule, openDays)) return false;
-      return true;
-    });
+      // Tylko nie-uczniowie kompletują minimum obsady
+      const candidates = employees.filter(e => {
+        if (isStudentEmp(e)) return false;
+        if (isCellLocked(deficitDay.ds, e.id)) return false;
+        const val = schedule[deficitDay.ds][e.id];
+        if (val !== 'Wolne') return false;
+        if (isHardOff(getPref(deficitDay.ds, e.id))) return false;
+        if (!allowBreakConsec && wouldBreakConsec(e.id, deficitDay.ds, schedule, openDays)) return false;
+        return true;
+      });
 
-    for (const e of candidates) {
-      if (workingCount >= targetMin) break;
-
-      let bestSource = null;
-      for (const src of activeDays) {
-        if (src.ds === deficitDay.ds) continue;
-        if (isCellLocked(src.ds, e.id)) continue;
-        if (!isWorkingVal(schedule[src.ds][e.id])) continue;
-
-        const srcMin = minStaffForDay(src);
-        const cov = hasOpenCloseCoverage(schedule, src, employees, e.id);
-        if (cov.count < srcMin) continue;
-        if (!cov.hasOpen || !cov.hasClose) continue;
-
-        if (!bestSource || cov.count > bestSource.count) {
-          bestSource = { day: src, count: cov.count };
+      // Na sobotę: najpierw osoby BEZ priorytetu wolnych sobót, potem z najmniejszą liczbą wolnych sobót
+      candidates.sort((a, b) => {
+        if (deficitDay.dow === 6) {
+          const pa = a.preferFreeSaturdays ? 1 : 0;
+          const pb = b.preferFreeSaturdays ? 1 : 0;
+          if (pa !== pb) return pa - pb;
         }
+        return Math.random() - 0.5;
+      });
+
+      for (const e of candidates) {
+        if (workingCount >= targetMin) break;
+
+        let bestSource = null;
+        for (const src of activeDays) {
+          if (src.ds === deficitDay.ds) continue;
+          if (isCellLocked(src.ds, e.id)) continue;
+          if (!isWorkingVal(schedule[src.ds][e.id])) continue;
+
+          const srcMin = minStaffForDay(src);
+          const cov = hasOpenCloseCoverage(schedule, src, employees, e.id);
+          if (cov.count < srcMin) continue;
+          if (!cov.hasOpen || !cov.hasClose) continue;
+
+          if (!bestSource || cov.count > bestSource.count) {
+            bestSource = { day: src, count: cov.count };
+          }
+        }
+
+        if (!bestSource) {
+          // Brak dnia-dawcy z nadwyżką — i tak dopisz na deficyt (obsada > etat/soboty)
+          // tylko gdy allowBreakConsec (ostateczność) lub nie łamie limitu
+          if (!allowBreakConsec) continue;
+          schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule, null, e)].label;
+          workingCount++;
+          continue;
+        }
+
+        schedule[bestSource.day.ds][e.id] = 'Wolne';
+        schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule, null, e)].label;
+        workingCount++;
       }
-
-      if (!bestSource) continue;
-
-      schedule[bestSource.day.ds][e.id] = 'Wolne';
-      schedule[deficitDay.ds][e.id] = SHIFTS[pickShiftCodeForDay(deficitDay, employees, schedule, null, e)].label;
-      workingCount++;
     }
-  }
+  };
+
+  tryFillDeficit(false);
+  // Minimum obsady ma pierwszeństwo nad limitem 5 dni z rzędu i wolnymi sobotami
+  tryFillDeficit(true);
 }
 
 function fillHoursDeficit(employees, openDays, activeDays, schedule, quota) {
@@ -3375,6 +3399,7 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
       if (isHardOff(getPref(sat.ds, needy.id))) continue;
 
       // Kompensacja etatu: dzień powszedni gdzie rich pracuje, a needy ma Wolne
+      // Minimum obsady > wolne soboty: zamiana tylko gdy obsada regularna nie spadnie
       let compDay = null;
       for (const wd of weekdays) {
         if (isCellLocked(wd.ds, rich.id) || isCellLocked(wd.ds, needy.id)) continue;
@@ -3382,13 +3407,25 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
         if (schedule[wd.ds][needy.id] !== 'Wolne') continue;
         if (isHardOff(getPref(wd.ds, needy.id))) continue;
         if (isHardOff(getPref(wd.ds, rich.id))) continue;
-        // Po zamianie min. obsada soboty i weekdaya nie może spaść poniżej minimum
-        // (sobota: needy wychodzi → sprawdź obsadę bez niego)
-        const satCov = hasOpenCloseCoverage(schedule, sat, employees, needy.id);
-        if (satCov.count < minStaffForDay(sat) - 0) {
-          // needy wychodzi z soboty; rich wchodzi — obsada bez zmian liczbowo
-        }
-        // weekday: rich wychodzi, needy wchodzi — obsada bez zmian
+
+        // Sobota po zamianie: needy (praca→Wolne), rich (Wolne→praca)
+        const satRegularAfter = employees.filter(o => {
+          if (isStudentEmp(o)) return false;
+          if (o.id === needy.id) return false; // wychodzi
+          if (o.id === rich.id) return !isStudentEmp(rich); // wchodzi, jeśli nie-uczeń
+          return isWorkingVal(schedule[sat.ds][o.id]);
+        }).length;
+        if (satRegularAfter < minStaffForDay(sat)) continue;
+
+        // Weekday po zamianie: rich wychodzi, needy wchodzi
+        const wdRegularAfter = employees.filter(o => {
+          if (isStudentEmp(o)) return false;
+          if (o.id === rich.id) return false;
+          if (o.id === needy.id) return !isStudentEmp(needy);
+          return isWorkingVal(schedule[wd.ds][o.id]);
+        }).length;
+        if (wdRegularAfter < minStaffForDay(wd)) continue;
+
         compDay = wd;
         break;
       }
@@ -3629,11 +3666,14 @@ function buildScheduleWarnings(openDays, schedule, employees, curMonth, actualUr
       if (val === SHIFTS.S5.label) hasClose = true;
     }
 
-    // Niska obsada → żółty
-    if (workingCount < targetMin) {
-      const satNote = day.dow === 6 ? ` (sobota, docelowo ${MIN_STAFF_SATURDAY})` : '';
+    // Obsada < 3 (absolutne minimum) → czerwony; sobota 3 zamiast 4 → żółty
+    if (workingCount < MIN_STAFF) {
+      warnings.push(
+        `Dzień ${day.d}.${curMonth}: Zbyt niska obsada salonu (${workingCount} os. bez uczniów). Absolutne minimum: ${MIN_STAFF}.`
+      );
+    } else if (day.dow === 6 && workingCount < MIN_STAFF_SATURDAY) {
       soft.push(
-        `Dzień ${day.d}.${curMonth}: Niska obsada salonu (${workingCount} os. bez uczniów). Minimum: ${targetMin}${satNote}.`
+        `Dzień ${day.d}.${curMonth}: Niska obsada w sobotę (${workingCount} os. bez uczniów, docelowo ${MIN_STAFF_SATURDAY}).`
       );
     }
     // Brak otwarcia / zamknięcia → czerwony
@@ -3747,6 +3787,8 @@ function generateSchedule() {
   ensureHourQuotas(employees, openDays, schedule, quota);
   trimOvertime(employees, openDays, schedule, quota);
   equalizeFreeSaturdays(employees, openDays, schedule);
+  // Po wyrównaniu sobót — ponownie dociągnij minimum obsady (obsada > wolne soboty)
+  rebalanceStaffing(employees, openDays, schedule);
   fillHoursDeficit(employees, openDays, activeDays, schedule, quota);
   // Po kompensatach sobót / urlopu — ponownie zetnij nadgodziny
   trimOvertime(employees, openDays, schedule, quota);
