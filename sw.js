@@ -1,6 +1,7 @@
-// Service worker: cache-first, żeby aplikacja działała bez internetu
-// po pierwszym otwarciu (dane i tak trzymane są lokalnie w localStorage).
-const CACHE_NAME = 'grafik-play-v6';
+// Service worker: offline po pierwszym otwarciu (dane w localStorage).
+// HTML — network-first (żeby Ctrl+R brał aktualną wersję).
+// Reszta assetów — cache-first.
+const CACHE_NAME = 'grafik-play-v7';
 const ASSETS = [
   './GRAFIK.html',
   './manifest.json',
@@ -26,14 +27,39 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+function isHtmlRequest(request) {
+  if (request.mode === 'navigate') return true;
+  const url = new URL(request.url);
+  return url.pathname.endsWith('.html') || url.pathname.endsWith('/');
+}
+
 self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+
+  if (isHtmlRequest(req)) {
+    // Network first → po udanym fetch aktualizuj cache; offline → stary cache
+    event.respondWith(
+      fetch(req)
+        .then((resp) => {
+          if (resp && resp.ok) {
+            const copy = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+          }
+          return resp;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match('./GRAFIK.html')))
+    );
+    return;
+  }
+
+  // Statyczne assety: cache-first
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(req).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((resp) => {
-        // Zapisz w cache kopię na przyszłość (best-effort)
+      return fetch(req).then((resp) => {
         const copy = resp.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
         return resp;
       }).catch(() => cached);
     })

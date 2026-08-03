@@ -5087,7 +5087,10 @@ function setAppView(view) {
 // nie zadziała przy otwarciu pliku bezpośrednio przez file://.
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(err => {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // Wymuś sprawdzenie nowej wersji SW (np. po podmianie plików)
+      try { reg.update(); } catch (_) {}
+    }).catch(err => {
       console.warn('Nie udało się zarejestrować service workera:', err);
     });
   });
