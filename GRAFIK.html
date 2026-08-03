@@ -644,7 +644,10 @@
   }
 
   .sched-table th:nth-child(1),
-  .sched-table td:nth-child(1) { width: 118px; }
+  .sched-table td:nth-child(1) {
+    width: 118px;
+    text-align: center;
+  }
 
   .sched-table th:nth-child(2),
   .sched-table td:nth-child(2) { width: 42px; }
@@ -698,19 +701,28 @@
   }
 
   .day-row-head {
-    display: inline-flex;
+    position: relative;
+    display: flex;
     align-items: center;
-    justify-content: flex-start;
-    gap: 4px;
-    max-width: 100%;
+    justify-content: center;
+    width: 100%;
+    min-height: 24px;
   }
   .day-date-label {
     white-space: nowrap;
+    line-height: 1.2;
+    text-align: center;
   }
   .btn-day-lock {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    box-sizing: border-box;
     padding: 0;
     border-radius: 6px;
     border: 1px solid var(--play-purple-soft);
@@ -721,10 +733,19 @@
     cursor: pointer;
     box-shadow: none;
     font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .btn-day-lock:hover {
     background: #fff7ed;
     border-color: #fdba74;
+  }
+  .sched-table td.day-date-cell {
+    text-align: center;
+    position: relative;
+    padding-left: 4px;
+    padding-right: 4px;
   }
 
   .schedule-lock-all-bar {
@@ -1250,8 +1271,23 @@
   }
 
   .help-tip:hover,
-  .help-tip:focus {
-    background: var(--play-purple-dark);
+  .help-tip:focus,
+  #empTable th .help-tip:hover,
+  #empTable th .help-tip:focus,
+  #empTable tr.row-all td:first-child .help-tip:hover,
+  #empTable tr.row-all td:first-child .help-tip:focus,
+  .panel h2 .help-tip:hover,
+  .panel h2 .help-tip:focus,
+  .label-with-tip .help-tip:hover,
+  .label-with-tip .help-tip:focus,
+  .th-with-tip .help-tip:hover,
+  .th-with-tip .help-tip:focus,
+  .sched-legend .help-tip:hover,
+  .sched-legend .help-tip:focus,
+  .match-bar .help-tip:hover,
+  .match-bar .help-tip:focus {
+    background: var(--play-purple-dark) !important;
+    color: #fff !important;
     transform: scale(1.08);
   }
 
@@ -4132,8 +4168,8 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
         : `Zablokuj cały wiersz: ${fullDate}`;
       dateCell = `<td class="${dayTypeCls} day-date-cell">
         <div class="day-row-head">
-          <span class="day-date-label">${fullDate}</span>
           <button type="button" class="btn-day-lock has-tip" data-action="toggle-lock-day" data-ds="${day.ds}" data-tip="${lockTip}" aria-label="${lockTip}">${lockLabel}</button>
+          <span class="day-date-label">${fullDate}</span>
         </div>
       </td>`;
     }
