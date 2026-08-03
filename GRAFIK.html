@@ -1602,6 +1602,54 @@ function shiftAllowedAfter(prev, next) {
   if (!prev || !next) return true;
   return prev === 'S5' ? shiftIndex(next) >= shiftIndex('S3') : shiftDist(prev, next) <= 1;
 }
+/** Max skoków godziny (±1) w ramach JEDNEJ serii kolejnych dni pracy (po wolnym licznik od zera). */
+const MAX_JUMPS_PER_SERIES = 1;
+
+/**
+ * Wybór zmiany z silną ciągłością w serii:
+ * - ta sama co wczoraj (preferowane),
+ * - ±1 tylko gdy brak slotu tej samej i w tej serii jeszcze niewykorzystany skok (max 1),
+ * - awaryjnie najbliższa dostępna (domknięcie dnia).
+ */
+function pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, forceJump) {
+  const jumps = shiftJumps || {};
+  const jumpsUsed = jumps[e.id] || 0;
+  const canJump = forceJump || jumpsUsed < MAX_JUMPS_PER_SERIES;
+  const studentAllows = (code) => {
+    if (!isStudentEmp(e)) return true;
+    if (code !== 'S1' && code !== 'S5') return true;
+    return (shiftCount[code] || 0) >= 1;
+  };
+  // W serii: max 2 na zmianę; przy braku skoku wolimy tę samą nawet przy pełnym slocie
+  const ok = (c, relaxCount) => studentAllows(c) && ((shiftCount[c] || 0) < 2 || relaxCount);
+
+  if (last) {
+    // 1) Ta sama zmiana (twardy priorytet)
+    let sameIdx = remainingPlan.findIndex(c => c === last && ok(c, false));
+    if (sameIdx !== -1) return sameIdx;
+    sameIdx = remainingPlan.findIndex(c => c === last && studentAllows(c));
+    if (sameIdx !== -1) return sameIdx;
+
+    // 2) Jeden dozwolony skok w serii — TYLKO legalne przejście (nigdy S5→S1 itp.)
+    if (canJump) {
+      let bestIdx = -1, bestD = 99, bestC = 99;
+      remainingPlan.forEach((c, i) => {
+        if (!ok(c, false) || !shiftAllowedAfter(last, c)) return;
+        const d = shiftDist(c, last);
+        const cnt = shiftCount[c] || 0;
+        if (d < bestD || (d === bestD && cnt < bestC)) {
+          bestD = d; bestC = cnt; bestIdx = i;
+        }
+      });
+      if (bestIdx !== -1) return bestIdx;
+    }
+
+    // 3) Brak skoku / brak legalnego — NIE wybieraj zakazanej godziny; wołający wymusi last
+    return -1;
+  }
+
+  return remainingPlan.findIndex(c => ok(c, false));
+}
 const calendarDayDiff = (a, b) => Math.round((new Date(b+'T12:00:00') - new Date(a+'T12:00:00')) / 86400000);
 const DAY_NAMES = ['nd', 'pon', 'wt', 'śr', 'czw', 'pt', 'sob'];
 const MONTH_NAMES = [
@@ -2615,7 +2663,7 @@ function computeQuotas(employees, activeDays, nd) {
 }
 
 
-function assignDayShifts(day, index, activeDays, employees, remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt) {
+function assignDayShifts(day, index, activeDays, employees, remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt, shiftJumps) {
   const scheduleDay = {};
   const totalRemainingShifts = employees.reduce((sum, e) => sum + Math.max(0, remaining[e.id]), 0);
   const remainingDays = activeDays.length - index;
@@ -2775,11 +2823,21 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     return (shiftCount[code] || 0) >= 1;
   };
 
-  // Preferencje zmiany (max 2 na tę samą)
+  // Preferencje zmiany (max 2 na tę samą) — w serii tylko jeśli nie łamią ciągłości/limitu skoków
   for (const e of working) {
     const p = getPref(day.ds, e.id);
     if (!p || p.type !== 'shift') continue;
     if (!studentOk(e, p.code)) continue;
+    const last = (consec[e.id] > 0) ? lastShift[e.id] : null;
+    if (last) {
+      if (p.code === last) {
+        // ok — ta sama
+      } else if ((shiftJumps[e.id] || 0) < MAX_JUMPS_PER_SERIES && shiftAllowedAfter(last, p.code)) {
+        // ok — jedyny dozwolony skok w serii
+      } else {
+        continue; // ignoruj preferencję łamiącą regułę serii
+      }
+    }
     const already = shiftCount[p.code] || 0;
     if (already >= 2) continue;
     const exactIdx = remainingPlan.indexOf(p.code);
@@ -2804,54 +2862,22 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     .sort((a, b) => SHIFTS[lastShift[b.id]].start - SHIFTS[lastShift[a.id]].start);
 
   for (const e of continuing) {
-    if (remainingPlan.length === 0) break;
     const last = lastShift[e.id];
-    remainingPlan.sort((x, y) => {
-      const sx = studentOk(e, x) ? 0 : 1;
-      const sy = studentOk(e, y) ? 0 : 1;
-      if (sx !== sy) return sx - sy;
-      // Najpierw dokładnie ta sama zmiana co wczoraj
-      const sameX = x === last ? 0 : 1, sameY = y === last ? 0 : 1;
-      if (sameX !== sameY) return sameX - sameY;
-      const ax = shiftAllowedAfter(last, x) ? 0 : 1;
-      const ay = shiftAllowedAfter(last, y) ? 0 : 1;
-      if (ax !== ay) return ax - ay;
-      const dx = shiftDist(x, last), dy = shiftDist(y, last);
-      if (dx !== dy) return dx - dy;
-      const cx = shiftCount[x] || 0, cy = shiftCount[y] || 0;
-      if (cx !== cy) return cx - cy;
-      const roleScore = (code) => {
-        const r = SHIFTS[code].role;
-        if (r === 'open') return openCnt[e.id] || 0;
-        if (r === 'close') return closeCnt[e.id] || 0;
-        return 50;
-      };
-      return roleScore(x) - roleScore(y);
-    });
-    // 1) ta sama zmiana, 2) dozwolone ±1, 3) najbliższa, 4) cokolwiek
-    let bestIdx = remainingPlan.findIndex(c =>
-      c === last && (shiftCount[c] || 0) < 2 && studentOk(e, c)
-    );
-    if (bestIdx === -1) {
-      bestIdx = remainingPlan.findIndex(c =>
-        (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
-      );
+    let bestIdx = remainingPlan.length
+      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false)
+      : -1;
+    if (bestIdx !== -1) {
+      const code = remainingPlan[bestIdx];
+      assigned[e.id] = code;
+      remainingPlan.splice(bestIdx, 1);
+      shiftCount[code] = (shiftCount[code] || 0) + 1;
+    } else if (last && studentOk(e, last)) {
+      // Wymuś tę samą godzinę — nie wolno drugiego skoku ani S5→S1
+      assigned[e.id] = last;
+      shiftCount[last] = (shiftCount[last] || 0) + 1;
+      const planIdx = remainingPlan.indexOf(last);
+      if (planIdx !== -1) remainingPlan.splice(planIdx, 1);
     }
-    if (bestIdx === -1) {
-      let bestD = 99;
-      remainingPlan.forEach((c, i) => {
-        if ((shiftCount[c] || 0) >= 2) return;
-        if (!studentOk(e, c)) return;
-        const d = shiftDist(c, last);
-        if (d < bestD) { bestD = d; bestIdx = i; }
-      });
-    }
-    if (bestIdx === -1) bestIdx = remainingPlan.findIndex(c => studentOk(e, c));
-    if (bestIdx === -1) bestIdx = 0;
-    const code = remainingPlan[bestIdx];
-    assigned[e.id] = code;
-    remainingPlan.splice(bestIdx, 1);
-    shiftCount[code] = (shiftCount[code] || 0) + 1;
   }
 
   // Pozostali z historią / bez
@@ -2863,45 +2889,17 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   for (const e of withHistory) {
     if (remainingPlan.length === 0) break;
     const last = lastShift[e.id];
-    remainingPlan.sort((x, y) => {
-      const sx = studentOk(e, x) ? 0 : 1;
-      const sy = studentOk(e, y) ? 0 : 1;
-      if (sx !== sy) return sx - sy;
-      const sameX = x === last ? 0 : 1, sameY = y === last ? 0 : 1;
-      if (sameX !== sameY) return sameX - sameY;
-      const ax = shiftAllowedAfter(last, x) ? 0 : 1;
-      const ay = shiftAllowedAfter(last, y) ? 0 : 1;
-      if (ax !== ay) return ax - ay;
-      const dx = shiftDist(x, last), dy = shiftDist(y, last);
-      if (dx !== dy) return dx - dy;
-      const cx = shiftCount[x] || 0, cy = shiftCount[y] || 0;
-      if (cx !== cy) return cx - cy;
-      const roleScore = (code) => {
-        const r = SHIFTS[code].role;
-        if (r === 'open') return openCnt[e.id] || 0;
-        if (r === 'close') return closeCnt[e.id] || 0;
-        return 50;
-      };
-      const rs = roleScore(x) - roleScore(y);
-      if (rs !== 0) return rs;
-      return roleOrder[SHIFTS[x].role] - roleOrder[SHIFTS[y].role];
-    });
-    let bestIdx = remainingPlan.findIndex(c =>
-      c === last && (shiftCount[c] || 0) < 2 && studentOk(e, c)
-    );
+    let bestIdx = pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false);
     if (bestIdx === -1) {
-      bestIdx = remainingPlan.findIndex(c =>
-        (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
-      );
-    }
-    if (bestIdx === -1) {
-      let bestD = 99;
-      remainingPlan.forEach((c, i) => {
-        if ((shiftCount[c] || 0) >= 2) return;
-        if (!studentOk(e, c)) return;
-        const d = shiftDist(c, last);
-        if (d < bestD) { bestD = d; bestIdx = i; }
+      remainingPlan.sort((x, y) => {
+        const sx = studentOk(e, x) ? 0 : 1;
+        const sy = studentOk(e, y) ? 0 : 1;
+        if (sx !== sy) return sx - sy;
+        const cx = shiftCount[x] || 0, cy = shiftCount[y] || 0;
+        if (cx !== cy) return cx - cy;
+        return roleOrder[SHIFTS[x].role] - roleOrder[SHIFTS[y].role];
       });
+      bestIdx = remainingPlan.findIndex(c => studentOk(e, c) && (shiftCount[c] || 0) < 2);
     }
     if (bestIdx === -1) bestIdx = remainingPlan.findIndex(c => studentOk(e, c));
     if (bestIdx === -1) bestIdx = 0;
@@ -2939,17 +2937,34 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     shiftCount[code] = (shiftCount[code] || 0) + 1;
   }
 
-  // Osoby bez przydziału — daj pozostałą zmianę z planu lub S3
+  // Osoby bez przydziału — ciągłość serii, potem pozostała zmiana z planu lub S3
   for (const e of working) {
     if (assigned[e.id]) continue;
-    const midIdx = remainingPlan.findIndex(c => studentOk(e, c) && (shiftCount[c] || 0) < 2);
+    const last = (consec[e.id] > 0) ? lastShift[e.id] : null;
+    let midIdx = remainingPlan.length
+      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false)
+      : -1;
     if (midIdx !== -1) {
       const code = remainingPlan[midIdx];
       assigned[e.id] = code;
       remainingPlan.splice(midIdx, 1);
       shiftCount[code] = (shiftCount[code] || 0) + 1;
+    } else if (last && studentOk(e, last)) {
+      assigned[e.id] = last;
+      shiftCount[last] = (shiftCount[last] || 0) + 1;
+    } else if (!last) {
+      const anyIdx = remainingPlan.findIndex(c => studentOk(e, c) && (shiftCount[c] || 0) < 2);
+      if (anyIdx !== -1) {
+        const code = remainingPlan[anyIdx];
+        assigned[e.id] = code;
+        remainingPlan.splice(anyIdx, 1);
+        shiftCount[code] = (shiftCount[code] || 0) + 1;
+      } else {
+        assigned[e.id] = 'S3';
+      }
     } else {
-      assigned[e.id] = 'S3';
+      // W serii bez legalnej opcji — zostań przy last
+      assigned[e.id] = last;
     }
   }
 
@@ -2957,6 +2972,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (!workingIds.has(e.id)) {
       consec[e.id] = 0;
       lastShift[e.id] = null;
+      if (shiftJumps) shiftJumps[e.id] = 0; // nowa seria po wolnym
       const pref = getPref(day.ds, e.id);
       if (pref?.type === 'vacation') {
         scheduleDay[e.id] = e.preferFreeOverUrlop === false ? 'Urlop' : 'Wolne';
@@ -2973,10 +2989,16 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       // shiftCount zawiera już tego ucznia — solo gdy count === 1
       if ((shiftCount[code] || 0) <= 1) code = 'S3';
     }
+    const prevConsec = consec[e.id];
+    const prevLast = lastShift[e.id];
     consec[e.id]++;
     remaining[e.id]--;
 
     if (code && SHIFTS[code]) {
+      // Skok godziny w środku serii (nie pierwszy dzień po wolnym)
+      if (shiftJumps && prevConsec > 0 && prevLast && code !== prevLast) {
+        shiftJumps[e.id] = (shiftJumps[e.id] || 0) + 1;
+      }
       scheduleDay[e.id] = SHIFTS[code].label;
       lastShift[e.id] = code;
       if (SHIFTS[code].role === 'open') openCnt[e.id]++;
@@ -3503,6 +3525,15 @@ function ensureOpenAndClose(employees, openDays, schedule) {
         ).length;
         if (n < 1) return false;
       }
+      // Nie dawaj 8:30 po 13:00 itd. — szanuj przejście z wczoraj
+      if (day.d > 1) {
+        const prevDs = dateStr(state.curYear, state.curMonth, day.d - 1);
+        const prevVal = schedule[prevDs]?.[e.id];
+        if (isWorkingVal(prevVal)) {
+          const prevCode = labelToShiftCode(prevVal);
+          if (prevCode && !shiftAllowedAfter(prevCode, code)) return false;
+        }
+      }
       return true;
     };
 
@@ -3845,11 +3876,117 @@ function smoothShiftTransitions(employees, openDays, schedule) {
     return improved;
   };
 
-  for (let pass = 0; pass < 60; pass++) {
+  for (let pass = 0; pass < 80; pass++) {
     if (!tryImprove(true)) break;
   }
-  for (let pass = 0; pass < 40; pass++) {
+  for (let pass = 0; pass < 50; pass++) {
     if (!tryImprove(false)) break;
+  }
+}
+
+/**
+ * Twarda reguła końcowa:
+ * - w jednej serii max 1 skok godziny,
+ * - nigdy niedozwolone przejście (np. 13:00→8:30 / S5→S1).
+ * Naprawia skutki rebalance / equalize / ensureOpenClose.
+ */
+function enforceSeriesShiftRules(employees, openDays, schedule) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  for (const e of employees) {
+    let seriesJumps = 0;
+    let prevCode = null;
+    let prevDay = null;
+
+    for (let i = 0; i < activeDays.length; i++) {
+      const day = activeDays[i];
+      const val = schedule[day.ds]?.[e.id];
+      if (!isWorkingVal(val)) {
+        prevCode = null;
+        prevDay = null;
+        seriesJumps = 0;
+        continue;
+      }
+      // Przerwa kalendarzowa >1 dnia = nowa seria
+      if (prevDay && calendarDayDiff(prevDay.ds, day.ds) !== 1) {
+        prevCode = null;
+        seriesJumps = 0;
+      }
+
+      let curCode = labelToShiftCode(val);
+      if (!curCode) { prevDay = day; continue; }
+
+      if (prevCode) {
+        const same = curCode === prevCode;
+        const allowed = shiftAllowedAfter(prevCode, curCode);
+        const isJump = !same;
+
+        const mustFix = (!allowed) || (isJump && seriesJumps >= MAX_JUMPS_PER_SERIES);
+        if (mustFix) {
+          if (isCellLocked(day.ds, e.id)) {
+            // zablokowane — nie ruszaj; resetuj serię względem faktu
+            if (isJump) seriesJumps++;
+            prevCode = curCode;
+            prevDay = day;
+            continue;
+          }
+          const pref = getPref(day.ds, e.id);
+          if (pref?.type === 'shift' && pref.code === curCode && allowed && seriesJumps < MAX_JUMPS_PER_SERIES) {
+            seriesJumps++;
+            prevCode = curCode;
+            prevDay = day;
+            continue;
+          }
+
+          // 1) Spróbuj zamiany z kimś, kto ma prevCode (albo dozwoloną kontynuację)
+          const targetCodes = [];
+          if (shiftAllowedAfter(prevCode, prevCode)) targetCodes.push(prevCode);
+          if (seriesJumps < MAX_JUMPS_PER_SERIES) {
+            for (const c of SHIFT_ORDER) {
+              if (c !== prevCode && shiftAllowedAfter(prevCode, c)) targetCodes.push(c);
+            }
+          }
+
+          let swapped = false;
+          for (const want of targetCodes) {
+            const partners = employees.filter(w =>
+              w.id !== e.id &&
+              isWorkingVal(schedule[day.ds][w.id]) &&
+              !isCellLocked(day.ds, w.id) &&
+              labelToShiftCode(schedule[day.ds][w.id]) === want
+            );
+            for (const w of partners) {
+              const wp = getPref(day.ds, w.id);
+              if (wp?.type === 'shift' && wp.code === want) continue;
+              // partner: oddanie curCode nie może mu zepsuć wczoraj→dziś jeśli pracował
+              const wPrevDay = prevDay;
+              const wPrevVal = schedule[wPrevDay.ds]?.[w.id];
+              if (isWorkingVal(wPrevVal)) {
+                const wPrevCode = labelToShiftCode(wPrevVal);
+                if (wPrevCode && !shiftAllowedAfter(wPrevCode, curCode)) continue;
+              }
+              schedule[day.ds][e.id] = SHIFTS[want].label;
+              schedule[day.ds][w.id] = SHIFTS[curCode].label;
+              curCode = want;
+              swapped = true;
+              break;
+            }
+            if (swapped) break;
+          }
+
+          if (!swapped) {
+            // 2) Wymuś wczorajszą godzinę
+            schedule[day.ds][e.id] = SHIFTS[prevCode].label;
+            curCode = prevCode;
+          }
+        }
+
+        if (curCode !== prevCode) seriesJumps++;
+      }
+
+      prevCode = curCode;
+      prevDay = day;
+    }
   }
 }
 
@@ -4033,6 +4170,7 @@ function generateSchedule() {
   const midCnt = {};
   const lastShift = {};
   const satOffCnt = {};
+  const shiftJumps = {};
   for (const e of employees) {
     consec[e.id] = 0;
     openCnt[e.id] = 0;
@@ -4040,6 +4178,7 @@ function generateSchedule() {
     midCnt[e.id] = 0;
     lastShift[e.id] = null;
     satOffCnt[e.id] = 0;
+    shiftJumps[e.id] = 0;
   }
 
   // Idziemy po kolei kalendarzowej: zamknięty dzień (niedziela/święto)
@@ -4051,6 +4190,7 @@ function generateSchedule() {
       for (const e of employees) {
         consec[e.id] = 0;
         lastShift[e.id] = null;
+        shiftJumps[e.id] = 0; // przerwa w serii (niedziela/święto)
       }
       schedule[day.ds] = {};
       for (const e of employees) schedule[day.ds][e.id] = 'Wolne';
@@ -4058,7 +4198,7 @@ function generateSchedule() {
     }
     schedule[day.ds] = assignDayShifts(
       day, activeIndex, activeDays, employees,
-      remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt
+      remaining, consec, openCnt, closeCnt, midCnt, lastShift, satOffCnt, shiftJumps
     );
     activeIndex++;
   }
@@ -4095,6 +4235,14 @@ function generateSchedule() {
   applyLockedCellsToSchedule(schedule, openDays, employees);
   // Po przywróceniu locków jeszcze raz domknij open/close (lock mógł zabrać S5)
   ensureOpenAndClose(employees, openDays, schedule);
+
+  // Twardo: max 1 skok / serię + zakaz S5→S1 (i innych niedozwolonych)
+  enforceSeriesShiftRules(employees, openDays, schedule);
+  ensureOpenAndClose(employees, openDays, schedule);
+  enforceSeriesShiftRules(employees, openDays, schedule);
+  applyLockedCellsToSchedule(schedule, openDays, employees);
+  ensureOpenAndClose(employees, openDays, schedule);
+  enforceSeriesShiftRules(employees, openDays, schedule);
 
   const roleCounts = computeRoleCounts(employees, openDays, schedule);
   const freeSaturdays = computeFreeSaturdays(employees, openDays, schedule);
