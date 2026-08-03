@@ -1,7 +1,7 @@
 // Service worker: offline po pierwszym otwarciu (dane w localStorage).
 // HTML — network-first (żeby Ctrl+R brał aktualną wersję).
 // Reszta assetów — cache-first.
-const CACHE_NAME = 'grafik-play-v7';
+const CACHE_NAME = 'grafik-play-v8';
 const ASSETS = [
   './GRAFIK.html',
   './manifest.json',
@@ -38,7 +38,6 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   if (isHtmlRequest(req)) {
-    // Network first → po udanym fetch aktualizuj cache; offline → stary cache
     event.respondWith(
       fetch(req)
         .then((resp) => {
@@ -53,7 +52,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Statyczne assety: cache-first
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;

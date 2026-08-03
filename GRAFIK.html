@@ -2810,6 +2810,9 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       const sx = studentOk(e, x) ? 0 : 1;
       const sy = studentOk(e, y) ? 0 : 1;
       if (sx !== sy) return sx - sy;
+      // Najpierw dokładnie ta sama zmiana co wczoraj
+      const sameX = x === last ? 0 : 1, sameY = y === last ? 0 : 1;
+      if (sameX !== sameY) return sameX - sameY;
       const ax = shiftAllowedAfter(last, x) ? 0 : 1;
       const ay = shiftAllowedAfter(last, y) ? 0 : 1;
       if (ax !== ay) return ax - ay;
@@ -2825,9 +2828,15 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       };
       return roleScore(x) - roleScore(y);
     });
+    // 1) ta sama zmiana, 2) dozwolone ±1, 3) najbliższa, 4) cokolwiek
     let bestIdx = remainingPlan.findIndex(c =>
-      (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+      c === last && (shiftCount[c] || 0) < 2 && studentOk(e, c)
     );
+    if (bestIdx === -1) {
+      bestIdx = remainingPlan.findIndex(c =>
+        (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+      );
+    }
     if (bestIdx === -1) {
       let bestD = 99;
       remainingPlan.forEach((c, i) => {
@@ -2858,6 +2867,8 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       const sx = studentOk(e, x) ? 0 : 1;
       const sy = studentOk(e, y) ? 0 : 1;
       if (sx !== sy) return sx - sy;
+      const sameX = x === last ? 0 : 1, sameY = y === last ? 0 : 1;
+      if (sameX !== sameY) return sameX - sameY;
       const ax = shiftAllowedAfter(last, x) ? 0 : 1;
       const ay = shiftAllowedAfter(last, y) ? 0 : 1;
       if (ax !== ay) return ax - ay;
@@ -2876,8 +2887,13 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       return roleOrder[SHIFTS[x].role] - roleOrder[SHIFTS[y].role];
     });
     let bestIdx = remainingPlan.findIndex(c =>
-      (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+      c === last && (shiftCount[c] || 0) < 2 && studentOk(e, c)
     );
+    if (bestIdx === -1) {
+      bestIdx = remainingPlan.findIndex(c =>
+        (shiftCount[c] || 0) < 2 && shiftAllowedAfter(last, c) && studentOk(e, c)
+      );
+    }
     if (bestIdx === -1) {
       let bestD = 99;
       remainingPlan.forEach((c, i) => {
@@ -3412,21 +3428,38 @@ const labelToShiftCode = label => LABEL_TO_CODE[label] || null;
 function pickShiftCodeForDay(day, employees, schedule, excludeId, forEmp) {
   let hasOpen = false, hasClose = false;
   const used = new Set();
+  const codeCount = {};
   for (const o of employees) {
     if (excludeId && o.id === excludeId) continue;
     const v = schedule[day.ds][o.id];
     if (!isWorkingVal(v)) continue;
     used.add(v);
+    const c = labelToShiftCode(v);
+    if (c) codeCount[c] = (codeCount[c] || 0) + 1;
     if (v === SHIFTS.S1.label) hasOpen = true;
     if (v === SHIFTS.S5.label) hasClose = true;
   }
+
+  // Preferuj wczorajszą zmianę pracownika (ciągłość serii), jeśli slot jest wolny
+  let prevCode = null;
+  if (forEmp && state.curYear && state.curMonth && day.d > 1) {
+    const prevDs = dateStr(state.curYear, state.curMonth, day.d - 1);
+    const prevVal = schedule[prevDs]?.[forEmp.id];
+    if (isWorkingVal(prevVal)) prevCode = labelToShiftCode(prevVal);
+  }
+  const canTake = (code) => {
+    if ((codeCount[code] || 0) >= 2) return false;
+    if (forEmp && isStudentEmp(forEmp) && (code === 'S1' || code === 'S5')) {
+      return (codeCount[code] || 0) >= 1;
+    }
+    return true;
+  };
+
   // Uczeń: S1/S5 tylko gdy ktoś już jest na tej zmianie; inaczej środkowa
   if (forEmp && isStudentEmp(forEmp)) {
-    const countLabel = label => employees.filter(o =>
-      (!excludeId || o.id !== excludeId) && schedule[day.ds][o.id] === label
-    ).length;
-    const openN = countLabel(SHIFTS.S1.label);
-    const closeN = countLabel(SHIFTS.S5.label);
+    if (prevCode && canTake(prevCode)) return prevCode;
+    const openN = codeCount.S1 || 0;
+    const closeN = codeCount.S5 || 0;
     if (openN >= 1 && openN < 2) return 'S1';
     if (closeN >= 1 && closeN < 2) return 'S5';
     if (!used.has(SHIFTS.S2.label)) return 'S2';
@@ -3436,6 +3469,7 @@ function pickShiftCodeForDay(day, employees, schedule, excludeId, forEmp) {
   }
   if (!hasOpen) return 'S1';
   if (!hasClose) return 'S5';
+  if (prevCode && canTake(prevCode)) return prevCode;
   if (!used.has(SHIFTS.S2.label)) return 'S2';
   if (!used.has(SHIFTS.S3.label)) return 'S3';
   if (!used.has(SHIFTS.S4.label)) return 'S4';
@@ -3725,7 +3759,9 @@ function smoothShiftTransitions(employees, openDays, schedule) {
         const prevCode = labelToShiftCode(prevVal);
         const curCode = labelToShiftCode(curVal);
         if (!prevCode || !curCode) continue;
-        if (shiftAllowedAfter(prevCode, curCode)) continue;
+        // Idealnie: ta sama zmiana — nie ruszaj; wariacje ±1 też próbuj wygładzić
+        const curDist = shiftDist(prevCode, curCode);
+        if (curDist === 0) continue;
         if (isCellLocked(day.ds, e.id)) continue;
 
         const pref = getPref(day.ds, e.id);
@@ -3735,7 +3771,7 @@ function smoothShiftTransitions(employees, openDays, schedule) {
           w.id !== e.id && isWorkingVal(schedule[day.ds][w.id]) && !isCellLocked(day.ds, w.id)
         );
         let best = null;
-        let bestDist = shiftDist(prevCode, curCode);
+        let bestDist = curDist;
         let bestAllowed = shiftAllowedAfter(prevCode, curCode);
 
         for (const w of workers) {
@@ -3760,10 +3796,11 @@ function smoothShiftTransitions(employees, openDays, schedule) {
 
           const allowedE = shiftAllowedAfter(prevCode, wCode);
           const newDistE = shiftDist(prevCode, wCode);
-          // Preferuj dozwolone przejście; wśród dozwolonych — mniejszy dystans
+          // Tylko realna poprawa ciągłości (mniejszy dystans); silnie preferuj tę samą zmianę
+          if (newDistE >= bestDist) continue;
           if (bestAllowed && !allowedE) continue;
-          if (allowedE === bestAllowed && newDistE >= bestDist) continue;
-          if (!allowedE && newDistE >= bestDist) continue;
+          // Przy już dozwolonym przejściu (±1) — zamieniaj tylko na dokładnie tę samą zmianę
+          if (bestAllowed && newDistE > 0) continue;
 
           const wPrev = schedule[prev.ds][w.id];
           const wPrevCode = isWorkingVal(wPrev) ? labelToShiftCode(wPrev) : null;
@@ -3808,10 +3845,10 @@ function smoothShiftTransitions(employees, openDays, schedule) {
     return improved;
   };
 
-  for (let pass = 0; pass < 50; pass++) {
+  for (let pass = 0; pass < 60; pass++) {
     if (!tryImprove(true)) break;
   }
-  for (let pass = 0; pass < 30; pass++) {
+  for (let pass = 0; pass < 40; pass++) {
     if (!tryImprove(false)) break;
   }
 }
@@ -5088,7 +5125,6 @@ function setAppView(view) {
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then((reg) => {
-      // Wymuś sprawdzenie nowej wersji SW (np. po podmianie plików)
       try { reg.update(); } catch (_) {}
     }).catch(err => {
       console.warn('Nie udało się zarejestrować service workera:', err);
