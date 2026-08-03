@@ -434,7 +434,8 @@
     top: 0;
     z-index: -1;
     background: #ffffff;
-    padding: 18px 20px;
+    padding: 0;
+    margin: 0;
     box-sizing: border-box;
     font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     color: #26232c;
@@ -446,23 +447,33 @@
   }
   #jpg-export-root .panel {
     box-shadow: none !important;
-    border: 1px solid #e8e4ef;
-    border-radius: 12px;
+    border: none;
+    border-radius: 0;
     background: #fff;
     max-width: none;
-    width: max-content;
+    width: 100%;
     margin: 0;
-    padding: 14px 16px;
+    padding: 8px 0 0;
+  }
+  #jpg-export-root .panel-header {
+    padding: 0 0 8px;
+    margin: 0 0 8px;
+  }
+  #jpg-export-root .sched-legend {
+    flex-wrap: wrap;
   }
   #jpg-export-root .sched-table {
     font-size: 11px;
-    table-layout: auto;
-    width: auto;
+    table-layout: fixed;
+    width: 100%;
+    border-collapse: collapse;
   }
   #jpg-export-root .sched-table th,
   #jpg-export-root .sched-table td {
-    padding: 4px 6px;
+    padding: 4px 5px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   #jpg-export-root .sched-table td.editable-cell.locked-cell {
     box-shadow: none !important;
@@ -4200,6 +4211,60 @@ const A4_PX = {
 };
 const A4_MARGIN_PX = Math.round((5 / 25.4) * A4_DPI); // ~5 mm
 
+/** Przycina prawie-białe marginesy ze zrzutu (żeby tabela nie miała „ramki” pustki). */
+function cropCanvasWhitespace(srcCanvas, threshold) {
+  threshold = threshold == null ? 248 : threshold;
+  try {
+    const w = srcCanvas.width;
+    const h = srcCanvas.height;
+    const ctx = srcCanvas.getContext('2d');
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    let top = 0, bottom = h - 1, left = 0, right = w - 1;
+    const isInk = (i) => {
+      const a = d[i + 3];
+      if (a < 8) return false;
+      return d[i] < threshold || d[i + 1] < threshold || d[i + 2] < threshold;
+    };
+    // top
+    outerTop:
+    for (; top < h; top++) {
+      for (let x = 0; x < w; x++) if (isInk((top * w + x) * 4)) break outerTop;
+    }
+    // bottom
+    outerBottom:
+    for (; bottom > top; bottom--) {
+      for (let x = 0; x < w; x++) if (isInk((bottom * w + x) * 4)) break outerBottom;
+    }
+    // left
+    outerLeft:
+    for (; left < w; left++) {
+      for (let y = top; y <= bottom; y++) if (isInk((y * w + left) * 4)) break outerLeft;
+    }
+    // right
+    outerRight:
+    for (; right > left; right--) {
+      for (let y = top; y <= bottom; y++) if (isInk((y * w + right) * 4)) break outerRight;
+    }
+    const cw = right - left + 1;
+    const ch = bottom - top + 1;
+    if (cw < 8 || ch < 8) return srcCanvas;
+    // mały zapas 2 px, żeby nie uciąć obramowania tabeli
+    const pad = 2;
+    const sx = Math.max(0, left - pad);
+    const sy = Math.max(0, top - pad);
+    const sw = Math.min(w - sx, cw + pad * 2);
+    const sh = Math.min(h - sy, ch + pad * 2);
+    const out = document.createElement('canvas');
+    out.width = sw;
+    out.height = sh;
+    out.getContext('2d').drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    return out;
+  } catch (_) {
+    return srcCanvas;
+  }
+}
+
 function fitCanvasToA4(srcCanvas) {
   const out = document.createElement('canvas');
   out.width = A4_PX.w;
@@ -4210,19 +4275,21 @@ function fitCanvasToA4(srcCanvas) {
 
   if (!srcCanvas || !srcCanvas.width || !srcCanvas.height) return out;
 
+  // Usuń pustą biel wokół tabeli, potem rozciągnij na CAŁĄ szerokość (i wysokość) obszaru A4
+  const cropped = cropCanvasWhitespace(srcCanvas);
   const maxW = A4_PX.w - A4_MARGIN_PX * 2;
   const maxH = A4_PX.h - A4_MARGIN_PX * 2;
-  const scale = Math.min(maxW / srcCanvas.width, maxH / srcCanvas.height);
-  if (!Number.isFinite(scale) || scale <= 0) return out;
+  if (maxW <= 0 || maxH <= 0) return out;
 
-  const dw = Math.round(srcCanvas.width * scale);
-  const dh = Math.round(srcCanvas.height * scale);
-  const dx = Math.round((A4_PX.w - dw) / 2);
-  const dy = Math.round((A4_PX.h - dh) / 2);
+  // Pełna szerokość + pełna wysokość obszaru roboczego (pozioma A4, margines ~5 mm)
+  const dx = A4_MARGIN_PX;
+  const dy = A4_MARGIN_PX;
+  const dw = maxW;
+  const dh = maxH;
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, dx, dy, dw, dh);
+  ctx.drawImage(cropped, 0, 0, cropped.width, cropped.height, dx, dy, dw, dh);
   return out;
 }
 
@@ -4299,13 +4366,35 @@ async function exportJpg() {
     exportRoot.appendChild(clone);
     document.body.appendChild(exportRoot);
 
-    // Wymuś layout (szerokość wg liczby kolumn)
+    // Tabela na pełną szerokość zrzutu (potem rozciągana na całą szerokość A4)
     const nEmp = state.employees.length || 1;
     const table = exportRoot.querySelector('.sched-table');
+    // Szerokość zbliżona do proporcji poziomej A4 (przy html2canvas scale:2 → ~1400–1800 px)
+    const targetTableW = Math.max(1400, 160 + 50 + nEmp * 140);
     if (table) {
-      table.style.width = 'auto';
-      table.style.minWidth = (140 + 42 + nEmp * 96) + 'px';
+      table.style.tableLayout = 'fixed';
+      table.style.width = targetTableW + 'px';
+      table.style.minWidth = targetTableW + 'px';
+      table.style.maxWidth = 'none';
+      const ths = table.querySelectorAll('thead th');
+      const empW = Math.floor((targetTableW - 130) / Math.max(nEmp, 1));
+      ths.forEach((th, i) => {
+        if (i === 0) th.style.width = '90px';
+        else if (i === 1) th.style.width = '40px';
+        else th.style.width = empW + 'px';
+      });
+      table.querySelectorAll('tbody td').forEach((td, idx) => {
+        // nie ustawiamy per-cell; table-layout:fixed + th wystarczy
+      });
     }
+    const panelEl = exportRoot.querySelector('.panel');
+    if (panelEl) {
+      panelEl.style.width = targetTableW + 'px';
+      panelEl.style.maxWidth = 'none';
+      panelEl.style.padding = '6px 0 0';
+    }
+    exportRoot.style.width = targetTableW + 'px';
+    exportRoot.style.padding = '0';
 
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 

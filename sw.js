@@ -1,6 +1,6 @@
 // Service worker: cache-first, żeby aplikacja działała bez internetu
 // po pierwszym otwarciu (dane i tak trzymane są lokalnie w localStorage).
-const CACHE_NAME = 'grafik-play-v2';
+const CACHE_NAME = 'grafik-play-v4';
 const ASSETS = [
   './GRAFIK.html',
   './manifest.json',
