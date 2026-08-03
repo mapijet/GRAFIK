@@ -1243,11 +1243,29 @@
   .top-bar-save {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex: 1;
     justify-content: flex-end;
     min-width: 0;
+    flex-wrap: wrap;
   }
+  .top-bar .btn-danger-on-purple {
+    background: rgba(255,255,255,0.12);
+    color: #ffe4e6;
+    border: 1px solid rgba(255,200,200,0.45);
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .top-bar .btn-danger-on-purple:hover {
+    background: rgba(220, 38, 38, 0.35);
+    border-color: rgba(255,180,180,0.7);
+    color: #fff;
+  }
+
 
   /* ——— Help tips ——— */
   .help-tip {
@@ -1495,6 +1513,8 @@
   </div>
   <div class="top-bar-save">
     <button id="saveBtn" class="btn-on-purple has-tip" data-action="save-all" data-tip="Wszystkie dane (w tym grafik) zapisują się w pamięci przeglądarki.">💾 ZAPISZ ZMIANY</button>
+    <button id="clearCacheBtn" class="btn-danger-on-purple has-tip" data-action="clear-cache"
+      data-tip="Usuwa grafiki, preferencje, blokady i cache offline. Lista pracowników (etykiety) zostaje zachowana.">🗑️ WYCZYŚĆ PAMIĘĆ</button>
   </div>
 </div>
 
@@ -1611,10 +1631,17 @@ const MAX_JUMPS_PER_SERIES = 1;
  * - ±1 tylko gdy brak slotu tej samej i w tej serii jeszcze niewykorzystany skok (max 1),
  * - awaryjnie najbliższa dostępna (domknięcie dnia).
  */
-function pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, forceJump) {
+/**
+ * seriesPos = consec przed dzisiejszym dniem (0 = start serii, 1 = drugi dzień…).
+ * Skok preferencyjnie tylko na początku serii (seriesPos === 1) albo przy forceJump.
+ * (Skok na końcu serii dogrywa post-pass preferJumpsAtSeriesEdges.)
+ */
+function pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, forceJump, seriesPos) {
   const jumps = shiftJumps || {};
   const jumpsUsed = jumps[e.id] || 0;
-  const canJump = forceJump || jumpsUsed < MAX_JUMPS_PER_SERIES;
+  // Skok dozwolony: force, albo (limit + pozycja na początku serii)
+  const atSeriesStart = seriesPos === 1; // przejście 1.→2. dnia serii
+  const canJump = forceJump || (jumpsUsed < MAX_JUMPS_PER_SERIES && atSeriesStart);
   const studentAllows = (code) => {
     if (!isStudentEmp(e)) return true;
     if (code !== 'S1' && code !== 'S5') return true;
@@ -1640,7 +1667,6 @@ function pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, for
       });
       if (bestIdx !== -1) return bestIdx;
     }
-    // Brak legalnej opcji — wołający wymusi last (nigdy S5→S1)
     return -1;
   }
 
@@ -2004,6 +2030,66 @@ function loadCurrentSchedule() {
 }
 
 const saveLastMonthYear = () => storageSet('ui:lastMonthYear', { year: state.curYear, month: state.curMonth });
+
+
+/** Usuwa całą pamięć aplikacji (localStorage + cache SW) i przeładowuje stronę. */
+async function clearAllAppData() {
+  const msg =
+    'Czy na pewno chcesz wyczyścić pamięć aplikacji?\n\n' +
+    'Zostanie skasowane:\n' +
+    '• wszystkie wygenerowane grafiki i blokady\n' +
+    '• preferencje, święta, niedziele handlowe\n' +
+    '• zapisany widok / ostatni miesiąc\n' +
+    '• cache offline (Service Worker)\n\n' +
+    'Zostanie ZACHOWANE:\n' +
+    '• lista pracowników (etykiety i ich ustawienia)\n\n' +
+    'Tej operacji NIE DA SIĘ COFNĄĆ.';
+  if (!confirm(msg)) return;
+  if (!confirm('Ostatnie potwierdzenie: wyczyścić pamięć (bez listy pracowników)?')) return;
+
+  try {
+    // Zachowaj listę pracowników
+    let savedEmployees = null;
+    try { savedEmployees = localStorage.getItem('employees'); } catch (_) {}
+
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k === 'employees') continue; // nie usuwaj etykiet pracowników
+      if (
+        k === 'ui:lastMonthYear' ||
+        k === 'ui:appView' ||
+        k.startsWith('settings:') ||
+        k.startsWith('schedule:') ||
+        k.startsWith('grafik')
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => {
+      try { localStorage.removeItem(k); } catch (_) {}
+    });
+
+    // Przywróć pracowników, gdyby coś je nadpisało
+    if (savedEmployees != null) {
+      try { localStorage.setItem('employees', savedEmployees); } catch (_) {}
+    }
+
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map(n => caches.delete(n)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Nie udało się w pełni wyczyścić pamięci: ' + (err && err.message ? err.message : String(err)));
+  }
+
+  location.href = location.pathname + location.search + (location.search ? '&' : '?') + '_cb=' + Date.now();
+}
 
 function saveAllData() {
   // Upewnij się, że stan miesiąca/roku = to co na liście
@@ -2850,7 +2936,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   for (const e of continuing) {
     const last = lastShift[e.id];
     let bestIdx = remainingPlan.length
-      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false)
+      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false, consec[e.id])
       : -1;
     if (bestIdx !== -1) {
       const code = remainingPlan[bestIdx];
@@ -2874,7 +2960,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
   for (const e of withHistory) {
     if (remainingPlan.length === 0) break;
     const last = lastShift[e.id];
-    let bestIdx = pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false);
+    let bestIdx = pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false, consec[e.id]);
     if (bestIdx === -1) {
       remainingPlan.sort((x, y) => {
         const sx = studentOk(e, x) ? 0 : 1;
@@ -2927,7 +3013,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (assigned[e.id]) continue;
     const last = (consec[e.id] > 0) ? lastShift[e.id] : null;
     let midIdx = remainingPlan.length
-      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false)
+      ? pickContinuousShift(remainingPlan, shiftCount, last, e, shiftJumps, false, consec[e.id])
       : -1;
     if (midIdx !== -1) {
       const code = remainingPlan[midIdx];
@@ -3907,6 +3993,133 @@ function smoothShiftTransitions(employees, openDays, schedule) {
  * - w jednej serii max 1 skok godziny,
  * - nigdy niedozwolone przejście (np. 13:00→8:30 / S5→S1).
  */
+/**
+ * Skoki godziny w serii dni pracy przenosi na brzeg serii (początek lub koniec).
+ * Środek serii ma być jednorodny.
+ */
+function preferJumpsAtSeriesEdges(employees, openDays, schedule) {
+  const activeDays = openDays.filter(d => !d.closed);
+
+  for (const e of employees) {
+    // Zbierz serie kolejnych dni pracy
+    let series = []; // {day, code, idx}
+    const flush = () => {
+      if (series.length < 3) { series = []; return; } // za krótka by mówić o „środku”
+      const codes = series.map(s => s.code);
+      // Znajdź pozycje skoków
+      const jumps = [];
+      for (let i = 1; i < codes.length; i++) {
+        if (codes[i] !== codes[i - 1]) jumps.push(i);
+      }
+      if (jumps.length === 0) { series = []; return; }
+
+      // OK: jeden skok na pozycji 1 (start) lub length-1 (koniec)
+      if (jumps.length === 1 && (jumps[0] === 1 || jumps[0] === codes.length - 1)) {
+        series = [];
+        return;
+      }
+
+      // Wybierz kod dominujący / strategię brzegu
+      const first = codes[0];
+      const last = codes[codes.length - 1];
+      // Policz frekwencję
+      const freq = {};
+      codes.forEach(c => { freq[c] = (freq[c] || 0) + 1; });
+
+      // Strategia A: wszystko = first (skok usunięty albo tylko teoretyczny na końcu)
+      // Strategia B: dzień 0 = first, reszta = last (skok na początku) gdy first≠last
+      // Strategia C: wszystko poza ostatnim = first, ostatni = last (skok na końcu)
+      const strategies = [];
+      strategies.push(codes.map(() => first));
+      if (first !== last) {
+        strategies.push(codes.map((c, i) => (i === 0 ? first : last)));
+        strategies.push(codes.map((c, i) => (i === codes.length - 1 ? last : first)));
+      }
+      // Strategia: cały blok = najczęstszy kod
+      const dominant = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+      strategies.push(codes.map(() => dominant));
+
+      const canSet = (day, code) => {
+        if (isCellLocked(day.ds, e.id)) return false;
+        const p = getPref(day.ds, e.id);
+        if (p?.type === 'shift' && p.code && p.code !== code) return false;
+        return true;
+      };
+
+      // Oceń strategię: legalne przejścia + nie zabiera jedynego S1/S5 dnia
+      const evaluate = (plan) => {
+        for (let i = 0; i < plan.length; i++) {
+          if (plan[i] !== codes[i] && !canSet(series[i].day, plan[i])) return -1;
+        }
+        for (let i = 1; i < plan.length; i++) {
+          if (!shiftAllowedAfter(plan[i - 1], plan[i])) return -1;
+        }
+        // Kara za skoki w środku
+        let penalty = 0;
+        let jumpCount = 0;
+        for (let i = 1; i < plan.length; i++) {
+          if (plan[i] !== plan[i - 1]) {
+            jumpCount++;
+            if (i !== 1 && i !== plan.length - 1) penalty += 10;
+            else penalty += 1;
+          }
+        }
+        if (jumpCount > MAX_JUMPS_PER_SERIES) penalty += 50;
+        return penalty;
+      };
+
+      let best = null;
+      let bestScore = Infinity;
+      for (const plan of strategies) {
+        const sc = evaluate(plan);
+        if (sc < 0) continue;
+        if (sc < bestScore) {
+          bestScore = sc;
+          best = plan;
+        }
+      }
+
+      if (best && bestScore < 10) {
+        // Aplikuj tylko gdy poprawiamy skok w środku
+        for (let i = 0; i < best.length; i++) {
+          if (best[i] !== codes[i]) {
+            const day = series[i].day;
+            // Nie zabieraj jedynego otwarcia/zamknięcia
+            const cur = codes[i];
+            if (cur === 'S1') {
+              const n = employees.filter(x => schedule[day.ds]?.[x.id] === SHIFTS.S1.label).length;
+              if (n <= 1 && best[i] !== 'S1') continue;
+            }
+            if (cur === 'S5') {
+              const n = employees.filter(x => schedule[day.ds]?.[x.id] === SHIFTS.S5.label).length;
+              if (n <= 1 && best[i] !== 'S5') continue;
+            }
+            schedule[day.ds][e.id] = SHIFTS[best[i]].label;
+          }
+        }
+      }
+      series = [];
+    };
+
+    for (let i = 0; i < activeDays.length; i++) {
+      const day = activeDays[i];
+      const val = schedule[day.ds]?.[e.id];
+      if (!isWorkingVal(val)) {
+        flush();
+        continue;
+      }
+      if (series.length) {
+        const prev = series[series.length - 1].day;
+        if (calendarDayDiff(prev.ds, day.ds) !== 1) flush();
+      }
+      const code = labelToShiftCode(val);
+      if (!code) { flush(); continue; }
+      series.push({ day, code, idx: i });
+    }
+    flush();
+  }
+}
+
 function enforceSeriesShiftRules(employees, openDays, schedule) {
   const activeDays = openDays.filter(d => !d.closed);
 
@@ -4218,48 +4431,34 @@ function generateSchedule() {
   // Przywróć zablokowane komórki z poprzedniego grafiku (przed rebalance)
   applyLockedCellsToSchedule(schedule, openDays, employees);
 
+  // --- Post-passy (kolejność ma znaczenie) ---
   rebalanceStaffing(employees, openDays, schedule);
   ensureHourQuotas(employees, openDays, schedule, quota);
   trimOvertime(employees, openDays, schedule, quota);
   equalizeFreeSaturdays(employees, openDays, schedule);
-  // Po wyrównaniu sobót — ponownie dociągnij minimum obsady
   rebalanceStaffing(employees, openDays, schedule);
   fillHoursDeficit(employees, openDays, activeDays, schedule, quota);
-  // Po kompensatach sobót / urlopu — ponownie zetnij nadgodziny
   trimOvertime(employees, openDays, schedule, quota);
   fulfillShiftPreferences(employees, openDays, schedule);
-  // Open/close fairness, then ±1 / S5→min S3 transitions
+
   equalizeOpenCloseRoles(employees, openDays, schedule);
   smoothShiftTransitions(employees, openDays, schedule);
   equalizeOpenCloseRoles(employees, openDays, schedule);
-  smoothShiftTransitions(employees, openDays, schedule);
-  // Uczeń: otwarcie/zamknięcie tylko z partnerem na tej samej zmianie
+
+  enforceSeriesShiftRules(employees, openDays, schedule);
+  preferJumpsAtSeriesEdges(employees, openDays, schedule);
+  equalizeOpenCloseRoles(employees, openDays, schedule);
+
   enforceStudentNoOpenClose(employees, openDays, schedule);
-  // Finalne przycięcie nadgodzin (post-passy mogły coś dopisać)
+  applyLockedCellsToSchedule(schedule, openDays, employees);
   trimOvertime(employees, openDays, schedule, quota);
-  // Twarde: każdy dzień MUSI mieć otwarcie i zamknięcie (po wszystkich passach)
-  ensureOpenAndClose(employees, openDays, schedule);
-  // Uczeń mógł dostać solo S1/S5 przy uzupełnianiu — popraw
-  enforceStudentNoOpenClose(employees, openDays, schedule);
-  ensureOpenAndClose(employees, openDays, schedule);
 
-  // Ponownie wymuś zablokowane wartości (post-pass nie może ich nadpisać)
+  // Ostateczne: otwarcie + zamknięcie każdego dnia (twardsze niż ciągłość)
+  ensureOpenAndClose(employees, openDays, schedule);
+  enforceStudentNoOpenClose(employees, openDays, schedule);
+  preferJumpsAtSeriesEdges(employees, openDays, schedule);
+  ensureOpenAndClose(employees, openDays, schedule);
   applyLockedCellsToSchedule(schedule, openDays, employees);
-  // Po przywróceniu locków jeszcze raz domknij open/close (lock mógł zabrać S5)
-  ensureOpenAndClose(employees, openDays, schedule);
-
-  // Ciągłość serii (max 1 skok, zakaz S5→S1)
-  enforceSeriesShiftRules(employees, openDays, schedule);
-  equalizeOpenCloseRoles(employees, openDays, schedule);
-  enforceSeriesShiftRules(employees, openDays, schedule);
-  equalizeOpenCloseRoles(employees, openDays, schedule);
-  enforceStudentNoOpenClose(employees, openDays, schedule);
-  applyLockedCellsToSchedule(schedule, openDays, employees);
-
-  // OSTATECZNE: każdy dzień MUSI mieć otwarcie i zamknięcie
-  // (ważniejsze niż ciągłość godzin — salon nie może zostać bez zamknięcia)
-  ensureOpenAndClose(employees, openDays, schedule);
-  enforceStudentNoOpenClose(employees, openDays, schedule);
   ensureOpenAndClose(employees, openDays, schedule);
 
   const roleCounts = computeRoleCounts(employees, openDays, schedule);
@@ -4947,6 +5146,7 @@ document.addEventListener('click', ev => {
 
   switch (el.dataset.action) {
     case 'save-all':       saveAllData(); break;
+    case 'clear-cache':    clearAllAppData(); break;
     case 'add-employee':   addEmployee(); break;
     case 'remove-employee': removeEmployee(el.dataset.emp); break;
     case 'month-change':   onMonthChange(); break;
