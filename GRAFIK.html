@@ -3520,11 +3520,10 @@ function ensureOpenAndClose(employees, openDays, schedule) {
     const workers = employees.filter(e => isWorkingVal(schedule[day.ds]?.[e.id]));
     if (!workers.length) continue;
 
-    let hasOpen = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S1.label);
-    let hasClose = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S5.label);
-    if (hasOpen && hasClose) continue;
+    const roleCounts = computeRoleCounts(employees, openDays, schedule);
 
-    const canTake = (e, code) => {
+    // Soft: szanuj ciągłość + preferencje + ucznia
+    const canTakeSoft = (e, code) => {
       if (isCellLocked(day.ds, e.id)) return false;
       const p = getPref(day.ds, e.id);
       if (p?.type === 'shift' && p.code && p.code !== code) return false;
@@ -3545,78 +3544,89 @@ function ensureOpenAndClose(employees, openDays, schedule) {
       return true;
     };
 
-    const pick = (code) => {
-      // 1) Nie-uczeń ze środkowej, bez twardej preferencji innej zmiany
-      const midRegulars = workers.filter(e => {
-        if (isStudentEmp(e)) return false;
-        if (!canTake(e, code)) return false;
-        const c = labelToShiftCode(schedule[day.ds][e.id]);
-        return c && SHIFTS[c].role === 'mid';
-      });
-      if (midRegulars.length) {
-        // Preferuj osobę z mniejszą liczbą open/close w miesiącu — prosty wybór pierwszej
-        return midRegulars[0];
-      }
-      // 2) Dowolny nie-uczeń (nawet open↔close zamiana)
-      const anyRegular = workers.filter(e => !isStudentEmp(e) && canTake(e, code));
-      if (anyRegular.length) return anyRegular[0];
-      // 3) W ostateczności uczeń, jeśli wolno (jest partner)
-      const any = workers.filter(e => canTake(e, code));
-      return any[0] || null;
+    // Hard: TYLKO lock i twarda preferencja innej zmiany — open/close salonu ma priorytet
+    const canTakeHard = (e, code) => {
+      if (isCellLocked(day.ds, e.id)) return false;
+      const p = getPref(day.ds, e.id);
+      if (p?.type === 'shift' && p.code && p.code !== code) return false;
+      return true;
     };
 
-    if (!hasOpen) {
-      const e = pick('S1');
-      if (e) {
-        schedule[day.ds][e.id] = SHIFTS.S1.label;
-        hasOpen = true;
-      }
-    }
-    if (!hasClose) {
-      // Odśwież listę po ewentualnej zmianie otwarcia
-      const e = pick('S5');
-      // Nie dawaj tej samej osobie obu ról, jeśli jest ktoś inny
-      if (e && schedule[day.ds][e.id] === SHIFTS.S1.label) {
-        const other = workers.find(w =>
-          w.id !== e.id && !isStudentEmp(w) && canTake(w, 'S5')
-        );
-        if (other) {
-          schedule[day.ds][other.id] = SHIFTS.S5.label;
-        } else if (workers.filter(w => isWorkingVal(schedule[day.ds][w.id])).length === 1) {
-          // Jedyna osoba w dniu — musi mieć obie? nie da się; zostaw open, ostrzeżenie w warnings
-        } else {
-          // Spróbuj kogoś innego ze środkowej
-          const alt = workers.find(w =>
-            w.id !== e.id && canTake(w, 'S5') &&
-            labelToShiftCode(schedule[day.ds][w.id]) !== 'S1'
-          );
-          if (alt) schedule[day.ds][alt.id] = SHIFTS.S5.label;
-          else schedule[day.ds][e.id] = SHIFTS.S5.label; // ostateczność: zamień open na close i…
-        }
-      } else if (e) {
-        schedule[day.ds][e.id] = SHIFTS.S5.label;
-      }
-    }
+    const scoreCandidate = (e, code) => {
+      // niższy = lepszy
+      let s = 0;
+      if (isStudentEmp(e)) s += 100;
+      const cur = labelToShiftCode(schedule[day.ds][e.id]);
+      if (cur && SHIFTS[cur].role === 'mid') s += 0;
+      else if (cur === code) s -= 5; // już na tej roli
+      else s += 10; // zabiera inną rolę open/close
+      if (code === 'S1') s += (roleCounts[e.id]?.open || 0);
+      if (code === 'S5') s += (roleCounts[e.id]?.close || 0);
+      return s;
+    };
 
-    // Po ewentualnej zamianie open→close upewnij się ponownie o open
+    const pick = (code, soft) => {
+      const test = soft ? canTakeSoft : canTakeHard;
+      const pool = workers.filter(e => test(e, code));
+      if (!pool.length) return null;
+      pool.sort((a, b) => scoreCandidate(a, code) - scoreCandidate(b, code));
+      return pool[0];
+    };
+
+    const assignRole = (code) => {
+      let e = pick(code, true);
+      if (!e) e = pick(code, false); // twarde wymuszenie
+      if (!e) return false;
+
+      // Unikaj dawania tej samej osobie obu ról, gdy jest ktoś inny
+      const otherCode = code === 'S1' ? 'S5' : 'S1';
+      if (schedule[day.ds][e.id] === SHIFTS[otherCode].label) {
+        const alt = workers
+          .filter(w => w.id !== e.id && (canTakeSoft(w, code) || canTakeHard(w, code)))
+          .sort((a, b) => scoreCandidate(a, code) - scoreCandidate(b, code));
+        if (alt.length) e = alt[0];
+      }
+      schedule[day.ds][e.id] = SHIFTS[code].label;
+      return true;
+    };
+
+    let hasOpen = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S1.label);
+    let hasClose = workers.some(e => schedule[day.ds][e.id] === SHIFTS.S5.label);
+
+    if (!hasOpen) assignRole('S1');
+    if (!hasClose) assignRole('S5');
+
+    // Finalna weryfikacja — jeśli nadal brak, twarde przypisanie na pierwszego nie-zablokowanego
     hasOpen = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S1.label);
     hasClose = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S5.label);
+
     if (!hasOpen) {
-      const e = pick('S1');
-      if (e && schedule[day.ds][e.id] !== SHIFTS.S5.label) {
-        schedule[day.ds][e.id] = SHIFTS.S1.label;
-      } else if (e) {
-        const alt = workers.find(w => w.id !== e.id && canTake(w, 'S1'));
-        if (alt) schedule[day.ds][alt.id] = SHIFTS.S1.label;
-      }
+      const e = workers.find(w => !isCellLocked(day.ds, w.id) &&
+        schedule[day.ds][w.id] !== SHIFTS.S5.label) ||
+        workers.find(w => !isCellLocked(day.ds, w.id));
+      if (e) schedule[day.ds][e.id] = SHIFTS.S1.label;
+    }
+    if (!hasClose) {
+      const e = workers.find(w => !isCellLocked(day.ds, w.id) &&
+        schedule[day.ds][w.id] !== SHIFTS.S1.label) ||
+        workers.find(w => !isCellLocked(day.ds, w.id));
+      if (e) schedule[day.ds][e.id] = SHIFTS.S5.label;
+    }
+
+    // Gdy po hard-force obie role na jednej osobie i jest ≥2 pracowników — rozdziel
+    hasOpen = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S1.label);
+    hasClose = employees.some(e => schedule[day.ds]?.[e.id] === SHIFTS.S5.label);
+    const openEmp = employees.find(e => schedule[day.ds]?.[e.id] === SHIFTS.S1.label);
+    const closeEmp = employees.find(e => schedule[day.ds]?.[e.id] === SHIFTS.S5.label);
+    if (openEmp && closeEmp && openEmp.id === closeEmp.id && workers.length >= 2) {
+      // niemożliwe w jednej komórce — napraw: ktoś inny bierze close
+      const alt = workers.find(w => w.id !== openEmp.id && !isCellLocked(day.ds, w.id));
+      if (alt) schedule[day.ds][alt.id] = SHIFTS.S5.label;
     }
   }
 }
 
-/**
- * Uczeń na S1/S5 tylko gdy ktoś inny jest na tej samej zmianie.
- * Jeśli solo — spróbuj dobić partnera (nie-uczeń ze środkowej) albo przenieś ucznia na środkową.
- */
+
 function enforceStudentNoOpenClose(employees, openDays, schedule) {
   for (const day of openDays) {
     if (day.closed) continue;
@@ -3965,8 +3975,15 @@ function enforceSeriesShiftRules(employees, openDays, schedule) {
               if (swapped) break;
             }
             if (!swapped) {
-              schedule[day.ds][e.id] = SHIFTS[prevCode].label;
-              curCode = prevCode;
+              // Nie cofaj S1/S5 jeśli to jedyne otwarcie/zamknięcie dnia
+              const isOnlyOpen = curCode === 'S1' && employees.filter(x =>
+                schedule[day.ds]?.[x.id] === SHIFTS.S1.label).length <= 1;
+              const isOnlyClose = curCode === 'S5' && employees.filter(x =>
+                schedule[day.ds]?.[x.id] === SHIFTS.S5.label).length <= 1;
+              if (!isOnlyOpen && !isOnlyClose) {
+                schedule[day.ds][e.id] = SHIFTS[prevCode].label;
+                curCode = prevCode;
+              }
             }
           }
         } else if (mustFix && isCellLocked(day.ds, e.id) && isJump) {
@@ -4233,14 +4250,16 @@ function generateSchedule() {
 
   // Ciągłość serii (max 1 skok, zakaz S5→S1)
   enforceSeriesShiftRules(employees, openDays, schedule);
-  // Ponowne wyrównanie otwarć/zamknięć po egzekucji ciągłości
   equalizeOpenCloseRoles(employees, openDays, schedule);
   enforceSeriesShiftRules(employees, openDays, schedule);
   equalizeOpenCloseRoles(employees, openDays, schedule);
+  enforceStudentNoOpenClose(employees, openDays, schedule);
+  applyLockedCellsToSchedule(schedule, openDays, employees);
+
+  // OSTATECZNE: każdy dzień MUSI mieć otwarcie i zamknięcie
+  // (ważniejsze niż ciągłość godzin — salon nie może zostać bez zamknięcia)
   ensureOpenAndClose(employees, openDays, schedule);
   enforceStudentNoOpenClose(employees, openDays, schedule);
-  enforceSeriesShiftRules(employees, openDays, schedule);
-  applyLockedCellsToSchedule(schedule, openDays, employees);
   ensureOpenAndClose(employees, openDays, schedule);
 
   const roleCounts = computeRoleCounts(employees, openDays, schedule);
