@@ -654,6 +654,45 @@
     width: 100px;
   }
 
+  .emp-sched-th {
+    vertical-align: middle;
+  }
+  .emp-col-head {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    max-width: 100%;
+  }
+  .emp-col-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .btn-emp-lock {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid var(--play-purple-soft);
+    background: #fff;
+    color: #9a3412;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: none;
+    font-weight: 700;
+  }
+  .btn-emp-lock:hover {
+    background: #fff7ed;
+    border-color: #fdba74;
+  }
+  body.exporting-jpg .btn-emp-lock,
+  #jpg-export-root .btn-emp-lock {
+    display: none !important;
+  }
+
   .sched-table td.off {
     background: #f0f1f4;
     color: #6b7280;
@@ -1656,6 +1695,64 @@ function unlockAllScheduleCells() {
   updateLockToggleButton();
 }
 const toggleLockAllScheduleCells = () => hasAnyLockedCells() ? unlockAllScheduleCells() : lockAllScheduleCells();
+
+/** Czy wszystkie otwarte dni pracownika są zablokowane. */
+function isEmployeeScheduleFullyLocked(empId) {
+  const ls = state.lastSchedule;
+  if (!ls?.openDays || !ls?.schedule) return false;
+  const days = ls.openDays.filter(d => !d.closed);
+  if (!days.length) return false;
+  return days.every(d => isCellLocked(d.ds, empId));
+}
+
+function lockEmployeeSchedule(empId) {
+  const ls = state.lastSchedule;
+  if (!ls?.schedule || !ls?.openDays || !empId) return;
+  pushScheduleHistory();
+  let changed = 0;
+  for (const day of ls.openDays) {
+    if (day.closed) continue;
+    const val = ls.schedule[day.ds]?.[empId];
+    if (val == null) continue;
+    if (!isCellLocked(day.ds, empId)) {
+      setCellLocked(day.ds, empId, true);
+      changed++;
+    }
+  }
+  if (!changed) {
+    scheduleHistory.undo.pop();
+    updateHistoryButtons();
+    return;
+  }
+  refreshAfterManualEdit();
+  updateLockToggleButton();
+}
+
+function unlockEmployeeSchedule(empId) {
+  const ls = state.lastSchedule;
+  if (!ls?.openDays || !empId) return;
+  pushScheduleHistory();
+  let changed = 0;
+  for (const day of ls.openDays) {
+    if (day.closed) continue;
+    if (isCellLocked(day.ds, empId)) {
+      setCellLocked(day.ds, empId, false);
+      changed++;
+    }
+  }
+  if (!changed) {
+    scheduleHistory.undo.pop();
+    updateHistoryButtons();
+    return;
+  }
+  refreshAfterManualEdit();
+  updateLockToggleButton();
+}
+
+const toggleEmployeeScheduleLock = (empId) =>
+  isEmployeeScheduleFullyLocked(empId)
+    ? unlockEmployeeSchedule(empId)
+    : lockEmployeeSchedule(empId);
 function applyLockedCellsToSchedule(schedule, openDays, employees) {
   for (const day of openDays) {
     if (day.closed) continue;
@@ -2064,11 +2161,12 @@ function matchScheduleFromTo(targetId, sourceId) {
   for (const day of openDays) {
     if (day.closed) continue;
     if (!schedule[day.ds]) continue;
+    // Nie nadpisuj już zablokowanych komórek u docelowego pracownika
+    if (isCellLocked(day.ds, targetId)) continue;
     const srcVal = schedule[day.ds][sourceId];
     if (srcVal == null) continue;
     schedule[day.ds][targetId] = srcVal;
-    // Zablokuj skopiowane komórki, żeby GENERUJ ich nie nadpisał
-    setCellLocked(day.ds, targetId, true);
+    // Nie blokuj skopiowanych komórek — respektowane są tylko wcześniejsze blokady
     changed++;
   }
   if (changed) refreshAfterManualEdit();
@@ -3959,19 +4057,31 @@ function renderOutput(openDays, schedule, requiredOff, actualWolne, actualUrlop,
       <div class="match-bar">
         <span class="match-bar-label label-with-tip">
           Dopasuj grafik:
-          <span class="help-tip" tabindex="0" data-tip="Pierwsze pole: osoba, której grafik ma zostać zmieniony. Drugie pole: osoba, do której grafiku dopasowujemy. Skopiowane komórki są automatycznie blokowane (🔒).">?</span>
+          <span class="help-tip" tabindex="0" data-tip="Pozwala skopiować grafik pracownika w pierwszym polu dla pracownika w drugim polu. Respektuje już zablokowane komórki u docelowego pracownika.">?</span>
         </span>
         <select id="matchTargetSel" aria-label="Pracownik, którego grafik dopasowujemy">${empOptsHtml}</select>
         <span class="match-sep">do:</span>
         <select id="matchSourceSel" aria-label="Pracownik wzorcowy">${empOptsHtml}</select>
-        <button type="button" class="btn-secondary has-tip" data-action="match-schedule" data-tip="Skopiuj grafik wzorcowy 1:1 na wybraną osobę i zablokuj komórki">Zastosuj</button>
+        <button type="button" class="btn-secondary has-tip" data-action="match-schedule" data-tip="Pozwala skopiować grafik pracownika w pierwszym polu dla pracownika w drugim polu. Respektuje już zablokowane komórki u docelowego pracownika.">Zastosuj</button>
       </div>
       <div style="overflow-x:auto;">
         <table class="sched-table">
           <thead>
             <tr>
               <th>Data</th><th>Dzień</th>
-              ${employees.map(e => `<th>${esc(e.name)}</th>`).join('')}
+              ${employees.map(e => {
+                const fullyLocked = isEmployeeScheduleFullyLocked(e.id);
+                const lockLabel = fullyLocked ? '🔓' : '🔒';
+                const lockTip = fullyLocked
+                  ? `Odblokuj cały grafik: ${esc(e.name)}`
+                  : `Zablokuj cały grafik: ${esc(e.name)}`;
+                return `<th class="emp-sched-th">
+                  <div class="emp-col-head">
+                    <span class="emp-col-name">${esc(e.name)}</span>
+                    <button type="button" class="btn-emp-lock has-tip" data-action="toggle-lock-emp" data-emp="${e.id}" data-tip="${lockTip}" aria-label="${lockTip}">${lockLabel}</button>
+                  </div>
+                </th>`;
+              }).join('')}
             </tr>
           </thead>
           <tbody>
@@ -4347,7 +4457,7 @@ async function exportJpg() {
 
     const clone = panel.cloneNode(true);
     // Usuń kontrolki UI z klona
-    clone.querySelectorAll('.match-bar, .row-actions, .lock-bar, select.cell-edit, .help-tip').forEach(el => el.remove());
+    clone.querySelectorAll('.match-bar, .row-actions, .lock-bar, select.cell-edit, .help-tip, .btn-emp-lock').forEach(el => el.remove());
     // Pokaż etykiety komórek (bez trybu edycji)
     clone.querySelectorAll('td.editable-cell').forEach(td => {
       td.classList.remove('editing', 'locked-cell');
@@ -4463,6 +4573,7 @@ document.addEventListener('click', ev => {
     case 'export-excel':   exportExcel(); break;
     case 'export-jpg':     exportJpg(); break;
     case 'toggle-lock-all': toggleLockAllScheduleCells(); break;
+    case 'toggle-lock-emp': toggleEmployeeScheduleLock(el.dataset.emp); break;
     case 'set-view':       setAppView(el.dataset.view); break;
     case 'match-schedule': {
       const targetId = document.getElementById('matchTargetSel')?.value;
@@ -4474,7 +4585,7 @@ document.addEventListener('click', ev => {
       }
       const targetName = state.employees.find(e => e.id === targetId)?.name || 'docelowy';
       const sourceName = state.employees.find(e => e.id === sourceId)?.name || 'źródłowy';
-      if (!confirm(`Skopiować cały grafik „${sourceName}” na „${targetName}”?\nKomórki zostaną zablokowane.`)) break;
+      if (!confirm(`Skopiować grafik „${sourceName}” na „${targetName}”?\nZablokowane komórki u „${targetName}” nie zostaną zmienione.`)) break;
       matchScheduleFromTo(targetId, sourceId);
       break;
     }
