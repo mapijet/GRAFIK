@@ -2389,9 +2389,13 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
     if (prefA !== prefB) return prefB - prefA;
 
     if (isSaturday && satOffCnt) {
+      // Bez priorytetu wolnych sobót → sprawiedliwy podział (jak open/close):
+      // kto ma więcej wolnych sobót, ten raczej pracuje.
+      // Z priorytetem → chronieni (pracują później).
       const workPriority = e => {
-        if (!e.preferFreeSaturdays) return -100;
-        return -(satOffCnt[e.id] || 0);
+        const free = satOffCnt[e.id] || 0;
+        if (!e.preferFreeSaturdays) return -free;
+        return 50 - free;
       };
       if (workPriority(a) !== workPriority(b)) return workPriority(a) - workPriority(b);
     }
@@ -3372,84 +3376,88 @@ function equalizeFreeSaturdays(employees, openDays, schedule) {
   const activeDays = openDays.filter(d => !d.closed);
   const saturdays = activeDays.filter(d => d.dow === 6);
   const weekdays = activeDays.filter(d => d.dow !== 6);
+  if (saturdays.length === 0) return;
 
-  const prefs = employees.filter(e => e.preferFreeSaturdays);
-  if (prefs.length < 2 || saturdays.length === 0) return;
+  // Wyrównaj wolne soboty osobno w dwóch grupach (jak open/close wśród regularów):
+  // 1) z priorytetem wolnych sobót → dążenie do TARGET_FREE_SATURDAYS i równego podziału
+  // 2) bez priorytetu → sprawiedliwy podział wolnych sobót (max−min ≤ 1)
+  const runForGroup = (group) => {
+    if (group.length < 2) return;
 
-  for (let pass = 0; pass < 40; pass++) {
-    const counts = computeFreeSaturdays(employees, openDays, schedule);
-    const sorted = [...prefs].sort((a, b) => (counts[a.id] || 0) - (counts[b.id] || 0));
-    const needy = sorted[0];
-    const rich = sorted[sorted.length - 1];
-    const nNeed = counts[needy.id] || 0;
-    const nRich = counts[rich.id] || 0;
+    for (let pass = 0; pass < 40; pass++) {
+      const counts = computeFreeSaturdays(employees, openDays, schedule);
+      const sorted = [...group].sort((a, b) => (counts[a.id] || 0) - (counts[b.id] || 0));
+      const needy = sorted[0];
+      const rich = sorted[sorted.length - 1];
+      const nNeed = counts[needy.id] || 0;
+      const nRich = counts[rich.id] || 0;
 
-    // Różnica max 1 — wystarczająco równo
-    if (nRich - nNeed <= 1) break;
+      // Różnica max 1 — wystarczająco równo
+      if (nRich - nNeed <= 1) break;
 
-    // Szukaj soboty: rich ma Wolne/Urlop, needy pracuje
-    let swapped = false;
-    for (const sat of saturdays) {
-      if (isCellLocked(sat.ds, rich.id) || isCellLocked(sat.ds, needy.id)) continue;
-      const richVal = schedule[sat.ds][rich.id];
-      const needVal = schedule[sat.ds][needy.id];
-      if (!(richVal === 'Wolne' || richVal === 'Urlop')) continue;
-      if (!isWorkingVal(needVal)) continue;
-      if (isHardOff(getPref(sat.ds, rich.id))) continue; // nie zabieraj twardego wolnego
-      if (isHardOff(getPref(sat.ds, needy.id))) continue;
+      // Szukaj soboty: rich ma Wolne/Urlop, needy pracuje
+      let swapped = false;
+      for (const sat of saturdays) {
+        if (isCellLocked(sat.ds, rich.id) || isCellLocked(sat.ds, needy.id)) continue;
+        const richVal = schedule[sat.ds][rich.id];
+        const needVal = schedule[sat.ds][needy.id];
+        if (!(richVal === 'Wolne' || richVal === 'Urlop')) continue;
+        if (!isWorkingVal(needVal)) continue;
+        if (isHardOff(getPref(sat.ds, rich.id))) continue; // nie zabieraj twardego wolnego
+        if (isHardOff(getPref(sat.ds, needy.id))) continue;
 
-      // Kompensacja etatu: dzień powszedni gdzie rich pracuje, a needy ma Wolne
-      // Minimum obsady > wolne soboty: zamiana tylko gdy obsada regularna nie spadnie
-      let compDay = null;
-      for (const wd of weekdays) {
-        if (isCellLocked(wd.ds, rich.id) || isCellLocked(wd.ds, needy.id)) continue;
-        if (!isWorkingVal(schedule[wd.ds][rich.id])) continue;
-        if (schedule[wd.ds][needy.id] !== 'Wolne') continue;
-        if (isHardOff(getPref(wd.ds, needy.id))) continue;
-        if (isHardOff(getPref(wd.ds, rich.id))) continue;
+        // Kompensacja etatu: dzień powszedni gdzie rich pracuje, a needy ma Wolne
+        // Minimum obsady > wolne soboty: zamiana tylko gdy obsada regularna nie spadnie
+        let compDay = null;
+        for (const wd of weekdays) {
+          if (isCellLocked(wd.ds, rich.id) || isCellLocked(wd.ds, needy.id)) continue;
+          if (!isWorkingVal(schedule[wd.ds][rich.id])) continue;
+          if (schedule[wd.ds][needy.id] !== 'Wolne') continue;
+          if (isHardOff(getPref(wd.ds, needy.id))) continue;
+          if (isHardOff(getPref(wd.ds, rich.id))) continue;
 
-        // Sobota po zamianie: needy (praca→Wolne), rich (Wolne→praca)
-        const satRegularAfter = employees.filter(o => {
-          if (isStudentEmp(o)) return false;
-          if (o.id === needy.id) return false; // wychodzi
-          if (o.id === rich.id) return !isStudentEmp(rich); // wchodzi, jeśli nie-uczeń
-          return isWorkingVal(schedule[sat.ds][o.id]);
-        }).length;
-        if (satRegularAfter < minStaffForDay(sat)) continue;
+          // Sobota po zamianie: needy (praca→Wolne), rich (Wolne→praca)
+          const satRegularAfter = employees.filter(o => {
+            if (isStudentEmp(o)) return false;
+            if (o.id === needy.id) return false; // wychodzi
+            if (o.id === rich.id) return !isStudentEmp(rich); // wchodzi, jeśli nie-uczeń
+            return isWorkingVal(schedule[sat.ds][o.id]);
+          }).length;
+          if (satRegularAfter < minStaffForDay(sat)) continue;
 
-        // Weekday po zamianie: rich wychodzi, needy wchodzi
-        const wdRegularAfter = employees.filter(o => {
-          if (isStudentEmp(o)) return false;
-          if (o.id === rich.id) return false;
-          if (o.id === needy.id) return !isStudentEmp(needy);
-          return isWorkingVal(schedule[wd.ds][o.id]);
-        }).length;
-        if (wdRegularAfter < minStaffForDay(wd)) continue;
+          // Weekday po zamianie: rich wychodzi, needy wchodzi
+          const wdRegularAfter = employees.filter(o => {
+            if (isStudentEmp(o)) return false;
+            if (o.id === rich.id) return false;
+            if (o.id === needy.id) return !isStudentEmp(needy);
+            return isWorkingVal(schedule[wd.ds][o.id]);
+          }).length;
+          if (wdRegularAfter < minStaffForDay(wd)) continue;
 
-        compDay = wd;
+          compDay = wd;
+          break;
+        }
+
+        if (!compDay) continue;
+
+        // Zamiana soboty: needy → Wolne, rich → praca
+        schedule[sat.ds][needy.id] = 'Wolne';
+        schedule[sat.ds][rich.id] = SHIFTS[pickShiftCodeForDay(sat, employees, schedule, needy.id, rich)].label;
+
+        // Kompensata weekday: rich → Wolne, needy → praca
+        schedule[compDay.ds][rich.id] = 'Wolne';
+        schedule[compDay.ds][needy.id] = SHIFTS[pickShiftCodeForDay(compDay, employees, schedule, rich.id, needy)].label;
+
+        swapped = true;
         break;
       }
 
-      if (!compDay) {
-        // Brak kompensaty — jeśli rich ma nadmiar godzin względem etatu, można tylko oddać sobotę
-        // ale etat needy spadnie. Bezpieczniej pominąć.
-        continue;
-      }
-
-      // Zamiana soboty: needy → Wolne, rich → praca (przejmuje sensowną zmianę)
-      schedule[sat.ds][needy.id] = 'Wolne';
-      schedule[sat.ds][rich.id] = SHIFTS[pickShiftCodeForDay(sat, employees, schedule, needy.id, rich)].label;
-
-      // Kompensata weekday: rich → Wolne, needy → praca
-      schedule[compDay.ds][rich.id] = 'Wolne';
-      schedule[compDay.ds][needy.id] = SHIFTS[pickShiftCodeForDay(compDay, employees, schedule, rich.id, needy)].label;
-
-      swapped = true;
-      break;
+      if (!swapped) break;
     }
+  };
 
-    if (!swapped) break;
-  }
+  runForGroup(employees.filter(e => e.preferFreeSaturdays));
+  runForGroup(employees.filter(e => !e.preferFreeSaturdays));
 }
 
 /**
