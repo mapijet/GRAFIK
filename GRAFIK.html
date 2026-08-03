@@ -1512,7 +1512,9 @@
     <h1>GENERATOR GRAFIKU — SALON PLAY</h1>
   </div>
   <div class="top-bar-save">
-    <button id="saveBtn" class="btn-on-purple has-tip" data-action="save-all" data-tip="Wszystkie dane (w tym grafik) zapisują się w pamięci przeglądarki.">💾 ZAPISZ ZMIANY</button>
+    <button id="saveBtn" class="btn-on-purple has-tip" data-action="backup-save" data-tip="Zapisuje wszystkie ustawienia do pliku">💾 ZAPISZ KOPIĘ ZAPASOWĄ</button>
+    <button id="loadBackupBtn" class="btn-on-purple has-tip" data-action="backup-load" data-tip="Wczytuje wszystkie ustawienia z pliku">📂 ZAŁADUJ KOPIĘ ZAPASOWĄ</button>
+    <input type="file" id="backupFileInput" accept="application/json,.json" style="display:none">
     <button id="clearCacheBtn" class="btn-danger-on-purple has-tip" data-action="clear-cache"
       data-tip="Usuwa grafiki, preferencje, blokady i cache offline. Lista pracowników (etykiety) zostaje zachowana.">🗑️ WYCZYŚĆ PAMIĘĆ</button>
   </div>
@@ -1774,34 +1776,6 @@ function countWorkedDays(empId, openDays, schedule) {
 }
 const countUrlopDays = (empId, openDays, schedule) =>
   openDays.filter(d => schedule[d.ds]?.[empId] === 'Urlop').length;
-
-/** Urlop z grafiku + zaplanowane preferencje (gdy grafik jeszcze niekompletny). */
-function countUrlopDaysPlanned(empId, openDays, schedule) {
-  let n = 0;
-  const sched = schedule || {};
-  for (const d of openDays) {
-    if (d.closed) continue;
-    const val = sched[d.ds]?.[empId];
-    if (val === 'Urlop') { n++; continue; }
-    if (isWorkingVal(val)) continue;
-    const p = getPref(d.ds, empId);
-    if (p?.type === 'vacation' || p?.type === 'off') n++;
-  }
-  return n;
-}
-
-/**
- * Handicap przy sprawiedliwym rozdziale otwarć/zamknięć.
- * 0–2 dni urlopu: 0 | 3–4: +1 | 5+: +2
- */
-const URLOP_ROLE_HANDICAP_FROM = 3;
-function urlopRoleHandicap(empId, openDays, schedule) {
-  const days = countUrlopDaysPlanned(empId, openDays, schedule);
-  if (days >= 5) return 2;
-  if (days >= URLOP_ROLE_HANDICAP_FROM) return 1;
-  return 0;
-}
-
 const etatDays = (empId, openDays, schedule) =>
   countWorkedDays(empId, openDays, schedule) + countUrlopDays(empId, openDays, schedule);
 const totalHours = (emp, openDays, schedule, actualUrlop) =>
@@ -2119,25 +2093,124 @@ async function clearAllAppData() {
   location.href = location.pathname + location.search + (location.search ? '&' : '?') + '_cb=' + Date.now();
 }
 
-function saveAllData() {
-  // Upewnij się, że stan miesiąca/roku = to co na liście
-  state.curMonth = Number(document.getElementById('monthSel').value);
-  state.curYear = Number(document.getElementById('yearSel').value);
-  saveLastMonthYear();
-  saveEmployees();
-  saveMonthSettings();
-  saveCurrentSchedule();
+/** Zapisuje wszystkie ustawienia (dane z localStorage) do pliku .json na dysku. */
+function exportBackupToFile() {
+  try {
+    // Upewnij się, że stan miesiąca/roku = to co na liście, i że wszystko jest zapisane w localStorage
+    state.curMonth = Number(document.getElementById('monthSel').value);
+    state.curYear = Number(document.getElementById('yearSel').value);
+    saveLastMonthYear();
+    saveEmployees();
+    saveMonthSettings();
+    saveCurrentSchedule();
 
-  const btn = document.getElementById('saveBtn');
-  const original = btn.innerText;
-  btn.innerText = '✔️ ZAPISANO!';
-  btn.style.background = '#ecfdf5';
-  btn.style.color = 'var(--good)';
-  setTimeout(() => {
-    btn.innerText = original;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 2000);
+    const data = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k == null) continue;
+      data[k] = localStorage.getItem(k);
+    }
+    const payload = {
+      app: 'GRAFIK-PLAY',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data,
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grafik-kopia-zapasowa-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    const btn = document.getElementById('saveBtn');
+    if (btn) {
+      const original = btn.innerText;
+      btn.innerText = '✔️ ZAPISANO!';
+      btn.style.background = '#ecfdf5';
+      btn.style.color = 'var(--good)';
+      setTimeout(() => {
+        btn.innerText = original;
+        btn.style.background = '';
+        btn.style.color = '';
+      }, 2000);
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Nie udało się zapisać kopii zapasowej: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+/** Otwiera okno wyboru pliku, aby wczytać kopię zapasową. */
+function loadBackupFromFile() {
+  const input = document.getElementById('backupFileInput');
+  if (!input) return;
+  input.value = ''; // pozwala wybrać ten sam plik ponownie
+  input.click();
+}
+
+/** Wczytuje wybrany plik kopii zapasowej i nadpisuje nim dane aplikacji. */
+async function handleBackupFileSelected(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const data = (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object')
+      ? payload.data
+      : (payload && typeof payload === 'object' ? payload : null);
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      alert('Nieprawidłowy plik kopii zapasowej.');
+      return;
+    }
+
+    const msg =
+      'Czy na pewno wczytać kopię zapasową z pliku?\n\n' +
+      'Zostanie NADPISANE:\n' +
+      '• lista pracowników\n' +
+      '• wszystkie zapisane grafiki i blokady\n' +
+      '• preferencje, święta, niedziele handlowe\n' +
+      '• zapisany widok / ostatni miesiąc\n\n' +
+      'Aktualne dane w przeglądarce zostaną zastąpione danymi z pliku.\n' +
+      'Tej operacji NIE DA SIĘ COFNĄĆ.';
+    if (!confirm(msg)) return;
+
+    // Usuń dotychczasowe dane aplikacji przed wczytaniem kopii
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (
+        k === 'employees' ||
+        k === 'ui:lastMonthYear' ||
+        k === 'ui:appView' ||
+        k.startsWith('settings:') ||
+        k.startsWith('schedule:') ||
+        k.startsWith('grafik')
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+
+    // Wpisz dane z kopii zapasowej
+    Object.keys(data).forEach(k => {
+      try { localStorage.setItem(k, data[k]); } catch (_) {}
+    });
+
+    alert('Kopia zapasowa wczytana. Aplikacja zostanie przeładowana.');
+    location.href = location.pathname + location.search + (location.search ? '&' : '?') + '_cb=' + Date.now();
+  } catch (err) {
+    console.error(err);
+    alert('Nie udało się wczytać kopii zapasowej: ' + (err && err.message ? err.message : String(err)));
+  }
 }
 
 function consensusValue(getter) {
@@ -3028,10 +3101,7 @@ function assignDayShifts(day, index, activeDays, employees, remaining, consec, o
       const sb = isStudentEmp(b) ? 1 : 0;
       if (sa !== sb) return sa - sb;
       const countFor = id => role === 'open' ? openCnt[id] : role === 'close' ? closeCnt[id] : midCnt[id];
-      // + handicap urlopowy przy otwarciach/zamknięciach
-      const ha = (role === 'open' || role === 'close') ? urlopRoleHandicap(a.id, activeDays, null) : 0;
-      const hb = (role === 'open' || role === 'close') ? urlopRoleHandicap(b.id, activeDays, null) : 0;
-      const ca = countFor(a.id) + ha, cb = countFor(b.id) + hb;
+      const ca = countFor(a.id), cb = countFor(b.id);
       if (ca !== cb) return ca - cb;
       return Math.random() - 0.5;
     });
@@ -3235,11 +3305,8 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
     return true;
   };
 
-  // Cel: max−min ≤ 2 (effective = role + handicap urlopowy 3+)
+  // Cel: max−min ≤ 2 dla open i close wśród regularów z ≥1 dniem pracy
   const TARGET_SPREAD = 2;
-  const handicaps = {};
-  for (const e of employees) handicaps[e.id] = urlopRoleHandicap(e.id, openDays, schedule);
-  const eff = (counts, id, role) => (counts[id]?.[role] || 0) + (handicaps[id] || 0);
 
   for (const role of ['open', 'close']) {
     for (let pass = 0; pass < 120; pass++) {
@@ -3249,19 +3316,20 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
       );
       if (active.length < 2) break;
 
-      const sorted = [...active].sort((a, b) => eff(counts, a.id, role) - eff(counts, b.id, role));
-      const minC = eff(counts, sorted[0].id, role);
-      const maxC = eff(counts, sorted[sorted.length - 1].id, role);
+      const sorted = [...active].sort((a, b) => counts[a.id][role] - counts[b.id][role]);
+      const minC = counts[sorted[0].id][role];
+      const maxC = counts[sorted[sorted.length - 1].id][role];
       if (maxC - minC <= TARGET_SPREAD) break;
 
+      // Próbuj wiele par (nie tylko skrajne) — bogatsi oddają potrzebującym
       let swapped = false;
-      const needies = sorted.filter(e => eff(counts, e.id, role) <= minC + 1);
-      const riches = [...sorted].reverse().filter(e => eff(counts, e.id, role) >= maxC - 1);
+      const needies = sorted.filter(e => counts[e.id][role] <= minC + 1);
+      const riches = [...sorted].reverse().filter(e => counts[e.id][role] >= maxC - 1);
 
       for (const rich of riches) {
         for (const needy of needies) {
           if (rich.id === needy.id) continue;
-          if (eff(counts, rich.id, role) - eff(counts, needy.id, role) <= TARGET_SPREAD) continue;
+          if (counts[rich.id][role] - counts[needy.id][role] <= TARGET_SPREAD) continue;
 
           for (const day of openDays) {
             if (day.closed) continue;
@@ -3289,7 +3357,6 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
   }
 
   // Lokalne zamiany open↔mid / close↔mid / open↔close gdy różnica > TARGET_SPREAD
-  // (z handicapem urlopowym — 3+ dni „Urlop”)
   for (let pass = 0; pass < 100; pass++) {
     const counts = computeRoleCounts(employees, openDays, schedule);
     let improved = false;
@@ -3309,23 +3376,25 @@ function equalizeOpenCloseRoles(employees, openDays, schedule) {
           const roleA = SHIFTS[codeA].role;
           const roleB = SHIFTS[codeB].role;
 
+          // open → mid: a ma za dużo open, b za mało
           if (roleA === 'open' && roleB === 'mid' &&
-              eff(counts, a.id, 'open') - eff(counts, b.id, 'open') > TARGET_SPREAD) {
+              counts[a.id].open - counts[b.id].open > TARGET_SPREAD) {
             if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
               improved = true;
               continue;
             }
           }
           if (roleA === 'close' && roleB === 'mid' &&
-              eff(counts, a.id, 'close') - eff(counts, b.id, 'close') > TARGET_SPREAD) {
+              counts[a.id].close - counts[b.id].close > TARGET_SPREAD) {
             if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
               improved = true;
               continue;
             }
           }
+          // open ↔ close gdy obie strony zyskują na bilansie
           if (roleA === 'open' && roleB === 'close' &&
-              eff(counts, a.id, 'open') - eff(counts, b.id, 'open') > TARGET_SPREAD &&
-              eff(counts, b.id, 'close') - eff(counts, a.id, 'close') > 0) {
+              counts[a.id].open - counts[b.id].open > TARGET_SPREAD &&
+              counts[b.id].close - counts[a.id].close > 0) {
             if (trySwapLabels(day, a, b, codeA, codeB, counts)) {
               improved = true;
             }
@@ -3680,8 +3749,6 @@ function ensureOpenAndClose(employees, openDays, schedule) {
       else s += 10; // zabiera inną rolę open/close
       if (code === 'S1') s += (roleCounts[e.id]?.open || 0);
       if (code === 'S5') s += (roleCounts[e.id]?.close || 0);
-      // Handicap urlopowy (3+ dni „Urlop”) — rzadziej dostaje S1/S5
-      s += urlopRoleHandicap(e.id, openDays, schedule);
       return s;
     };
 
@@ -5179,7 +5246,8 @@ document.addEventListener('click', ev => {
   if (!el) return;
 
   switch (el.dataset.action) {
-    case 'save-all':       saveAllData(); break;
+    case 'backup-save':    exportBackupToFile(); break;
+    case 'backup-load':    loadBackupFromFile(); break;
     case 'clear-cache':    clearAllAppData(); break;
     case 'add-employee':   addEmployee(); break;
     case 'remove-employee': removeEmployee(el.dataset.emp); break;
@@ -5314,6 +5382,8 @@ function setAppView(view) {
   initMonthPickers();
   loadEmployees();
   onMonthChange();
+  const backupFileInput = document.getElementById('backupFileInput');
+  if (backupFileInput) backupFileInput.addEventListener('change', handleBackupFileSelected);
   const savedView = storageGet('ui:appView', 'options');
   // migracja ze starych kluczy prefs / prefs+generator
   const mapped = savedView === 'prefs' ? 'options'
