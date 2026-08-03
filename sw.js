@@ -1,7 +1,7 @@
 // Service worker: offline po pierwszym otwarciu (dane w localStorage).
 // HTML — network-first (żeby Ctrl+R brał aktualną wersję).
 // Reszta assetów — cache-first.
-const CACHE_NAME = 'grafik-play-v11';
+const CACHE_NAME = 'grafik-play-v12';
 const ASSETS = [
   './GRAFIK.html',
   './manifest.json',
